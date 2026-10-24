@@ -17,8 +17,10 @@ target_compile_options(me INTERFACE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 
-add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp tests/test_differential.cpp tests/test_id_map.cpp tests/test_price_bitmap.cpp)
-target_link_libraries(tests PRIVATE me)
+find_package(Threads REQUIRED)
+
+add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp tests/test_differential.cpp tests/test_id_map.cpp tests/test_price_bitmap.cpp tests/test_spsc_ring.cpp)
+target_link_libraries(tests PRIVATE me Threads::Threads)
 if(ME_SANITIZE)
   target_compile_options(tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all)
   target_link_options(tests PRIVATE -fsanitize=address,undefined)
@@ -28,3 +30,7 @@ add_test(NAME tests COMMAND tests)
 add_executable(bench bench/bench.cpp)
 target_link_libraries(bench PRIVATE me)
 target_compile_options(bench PRIVATE -O3)
+
+add_executable(pipeline bench/pipeline.cpp)
+target_link_libraries(pipeline PRIVATE me Threads::Threads)
+target_compile_options(pipeline PRIVATE -O3)
