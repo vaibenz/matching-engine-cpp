@@ -14,3 +14,7 @@ target_include_directories(me INTERFACE include)
 target_compile_options(me INTERFACE -Wall -Wextra -Wpedantic)
 
 enable_testing()
+
+add_executable(tests tests/test_main.cpp tests/test_book.cpp)
+target_link_libraries(tests PRIVATE me)
+add_test(NAME tests COMMAND tests)
