@@ -42,7 +42,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ./build/tests
 ```
 
-26 cases, no external test framework (`tests/check.hpp` is about 60 lines).
+26 cases, no external test framework (`tests/check.hpp` is 70 lines).
 
 * **Scenario tests** cover price time priority, partial fills, sweeps, every order type, cancels from the middle of a queue, the modify priority rules and input validation.
 * **Differential test.** 300 random streams of 2,000 commands go through both the real book and `ReferenceBook`, which keeps one flat vector and linear scans everything. Events must match after every command, and depth must match every 16 commands. The streams mix every order type with bad prices, bad quantities, duplicate ids, and cancels and modifies on live, filled and unknown orders.
