@@ -8,6 +8,7 @@
 
 #include "id_map.hpp"
 #include "order_pool.hpp"
+#include "price_bitmap.hpp"
 #include "types.hpp"
 
 namespace me {
@@ -39,6 +40,8 @@ public:
           listener_(listener),
           bids_(static_cast<std::size_t>(max_price) + 1),
           asks_(static_cast<std::size_t>(max_price) + 1),
+          bid_bits_(max_price),
+          ask_bits_(max_price),
           pool_(expected_orders),
           ids_(expected_orders) {}
 
@@ -126,13 +129,8 @@ public:
     std::vector<LevelInfo> depth(Side side, std::size_t n) const {
         std::vector<LevelInfo> out;
         const auto& lv = ladder(side);
-        if (side == Side::Buy) {
-            for (Price p = best_bid_; p >= 1 && out.size() < n; --p)
-                if (lv[p].count) out.push_back({p, lv[p].total, lv[p].count});
-        } else {
-            for (Price p = best_ask_; p <= max_price_ && out.size() < n; ++p)
-                if (lv[p].count) out.push_back({p, lv[p].total, lv[p].count});
-        }
+        for (Price p = best(side); p != kNone && out.size() < n; p = further(side, p))
+            out.push_back({p, lv[p].total, lv[p].count});
         return out;
     }
 
@@ -180,12 +178,10 @@ private:
     // reaches `wanted`.
     Qty available_to_take(Side side, Price limit, Qty wanted) const {
         Qty got = 0;
-        const auto& opp = ladder(opposite(side));
-        if (side == Side::Buy) {
-            for (Price p = best_ask_; p <= max_price_ && crosses(side, limit, p) && got < wanted; ++p) got += opp[p].total;
-        } else {
-            for (Price p = best_bid_; p >= 1 && crosses(side, limit, p) && got < wanted; --p) got += opp[p].total;
-        }
+        const Side o = opposite(side);
+        const auto& opp = ladder(o);
+        for (Price p = best(o); p != kNone && crosses(side, limit, p) && got < wanted; p = further(o, p))
+            got += opp[p].total;
         return got;
     }
 
@@ -247,20 +243,42 @@ private:
         if (--lv.count == 0) level_emptied(o.side, o.price);
     }
 
-    void level_filled(Side s, Price p) {
-        if (s == Side::Buy) best_bid_ = std::max(best_bid_, p);
-        else best_ask_ = std::min(best_ask_, p);
+    static constexpr Price kNone = PriceBitmap::kNone;
+
+    // best non empty level on a side, or kNone
+    Price best(Side s) const {
+        if (s == Side::Buy) return best_bid_ >= 1 ? best_bid_ : kNone;
+        return best_ask_ <= max_price_ ? best_ask_ : kNone;
     }
 
-    // Best level went empty: scan outward for the next non empty one.
+    // next non empty level behind p (lower for bids, higher for asks)
+    Price further(Side s, Price p) const {
+        return s == Side::Buy ? bid_bits_.prev_at_or_before(p - 1) : ask_bits_.next_at_or_after(p + 1);
+    }
+
+    void level_filled(Side s, Price p) {
+        if (s == Side::Buy) {
+            bid_bits_.set(p);
+            best_bid_ = std::max(best_bid_, p);
+        } else {
+            ask_bits_.set(p);
+            best_ask_ = std::min(best_ask_, p);
+        }
+    }
+
     void level_emptied(Side s, Price p) {
         if (s == Side::Buy) {
-            if (p != best_bid_) return;
-            while (best_bid_ >= 1 && bids_[best_bid_].count == 0) --best_bid_;
-            if (best_bid_ < 1) best_bid_ = 0;
+            bid_bits_.clear(p);
+            if (p == best_bid_) {
+                Price n = bid_bits_.prev_at_or_before(p - 1);
+                best_bid_ = n == kNone ? 0 : n;
+            }
         } else {
-            if (p != best_ask_) return;
-            while (best_ask_ <= max_price_ && asks_[best_ask_].count == 0) ++best_ask_;
+            ask_bits_.clear(p);
+            if (p == best_ask_) {
+                Price n = ask_bits_.next_at_or_after(p + 1);
+                best_ask_ = n == kNone ? max_price_ + 1 : n;
+            }
         }
     }
 
@@ -268,6 +286,8 @@ private:
     Listener listener_;
     std::vector<Level> bids_;
     std::vector<Level> asks_;
+    PriceBitmap bid_bits_;
+    PriceBitmap ask_bits_;
     OrderPool pool_;
     IdMap ids_;
     Price best_bid_ = 0;               // 0 = no bids

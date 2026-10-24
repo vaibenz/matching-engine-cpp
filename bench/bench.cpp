@@ -92,6 +92,24 @@ void run(const char* name, const std::vector<Command>& cmds, const Clock& clk) {
                 pct(empty, 50, clk));
 }
 
+// Worst case for finding the next level: asks spaced 1,000 ticks apart.
+// Each market buy takes the whole best level and a new one is posted at the
+// back, so every command empties the touch and has to find the next level.
+std::vector<Command> sparse_flow(std::size_t n) {
+    std::vector<Command> out;
+    OrderId id = 1;
+    constexpr Price kGap = 1000, kLevels = 16;
+    Price back = 1000;
+    for (Price i = 0; i < kLevels; ++i, back += kGap) out.push_back({Kind::Submit, Side::Sell, OrderType::Limit, id++, back, 10});
+    while (out.size() < n) {
+        out.push_back({Kind::Submit, Side::Buy, OrderType::Market, id++, 0, 10});
+        out.push_back({Kind::Submit, Side::Sell, OrderType::Limit, id++, back, 10});
+        back += kGap;
+        if (back > kMaxPrice - kGap) back = 1000 + (back % kGap) + 1;  // wrap, keep spacing roughly even
+    }
+    return out;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -106,5 +124,9 @@ int main(int argc, char** argv) {
 
     Clock clk;
     run<OrderBook<CountingListener>>("ladder", cmds, clk);
+
+    std::printf("\nsparse book (levels 1,000 ticks apart, every command moves the touch):\n");
+    auto sparse = sparse_flow(n);
+    run<OrderBook<CountingListener>>("ladder", sparse, clk);
     return 0;
 }
