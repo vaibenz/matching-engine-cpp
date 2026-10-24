@@ -4,9 +4,9 @@
 #include <cassert>
 #include <cstdint>
 #include <limits>
-#include <unordered_map>
 #include <vector>
 
+#include "id_map.hpp"
 #include "order_pool.hpp"
 #include "types.hpp"
 
@@ -39,9 +39,8 @@ public:
           listener_(listener),
           bids_(static_cast<std::size_t>(max_price) + 1),
           asks_(static_cast<std::size_t>(max_price) + 1),
-          pool_(expected_orders) {
-        ids_.reserve(expected_orders);
-    }
+          pool_(expected_orders),
+          ids_(expected_orders) {}
 
     // ------------------------------------------------------------- commands
 
@@ -49,7 +48,7 @@ public:
     Qty submit(OrderId id, Side side, OrderType type, Price price, Qty qty) {
         if (qty <= 0) return reject(id, RejectReason::InvalidQuantity);
         if (has_price(type) && !valid_price(price)) return reject(id, RejectReason::InvalidPrice);
-        if (ids_.count(id)) return reject(id, RejectReason::DuplicateOrderId);
+        if (ids_.contains(id)) return reject(id, RejectReason::DuplicateOrderId);
         if (type == OrderType::PostOnly && would_cross(side, price))
             return reject(id, RejectReason::PostOnlyWouldTake);
 
@@ -75,13 +74,12 @@ public:
     }
 
     bool cancel(OrderId id) {
-        auto it = ids_.find(id);
-        if (it == ids_.end()) {
+        const std::uint32_t idx = ids_.find(id);
+        if (idx == kNil) {
             listener_.on_rejected(id, RejectReason::UnknownOrderId);
             return false;
         }
-        const std::uint32_t idx = it->second;
-        ids_.erase(it);
+        ids_.erase(id);
         const Qty cancelled = pool_[idx].remaining;
         unlink(idx);
         pool_.free(idx);
@@ -93,12 +91,11 @@ public:
     // change or a quantity increase loses priority: the order is pulled and
     // re-entered as a fresh limit order, and may trade if it now crosses.
     bool modify(OrderId id, Price new_price, Qty new_qty) {
-        auto it = ids_.find(id);
-        if (it == ids_.end()) return reject(id, RejectReason::UnknownOrderId), false;
+        const std::uint32_t idx = ids_.find(id);
+        if (idx == kNil) return reject(id, RejectReason::UnknownOrderId), false;
         if (new_qty <= 0) return reject(id, RejectReason::InvalidQuantity), false;
         if (!valid_price(new_price)) return reject(id, RejectReason::InvalidPrice), false;
 
-        const std::uint32_t idx = it->second;
         Order& o = pool_[idx];
         if (new_price == o.price && new_qty <= o.remaining) {
             ladder(o.side)[o.price].total -= o.remaining - new_qty;
@@ -108,7 +105,7 @@ public:
         }
 
         const Side side = o.side;
-        ids_.erase(it);
+        ids_.erase(id);
         unlink(idx);
         pool_.free(idx);
         listener_.on_modified(id, new_price, new_qty);
@@ -148,8 +145,8 @@ public:
     }
 
     const Order* find(OrderId id) const {
-        auto it = ids_.find(id);
-        return it == ids_.end() ? nullptr : &pool_[it->second];
+        const std::uint32_t idx = ids_.find(id);
+        return idx == kNil ? nullptr : &pool_[idx];
     }
 
     std::size_t resting_orders() const { return ids_.size(); }
@@ -237,7 +234,7 @@ private:
         lv.tail = idx;
         lv.total += qty;
         if (lv.count++ == 0) level_filled(side, price);
-        ids_.emplace(id, idx);
+        ids_.insert(id, idx);
         listener_.on_rested(id, side, price, qty);
     }
 
@@ -272,7 +269,7 @@ private:
     std::vector<Level> bids_;
     std::vector<Level> asks_;
     OrderPool pool_;
-    std::unordered_map<OrderId, std::uint32_t> ids_;
+    IdMap ids_;
     Price best_bid_ = 0;               // 0 = no bids
     Price best_ask_ = max_price_ + 1;  // max+1 = no asks
 };
