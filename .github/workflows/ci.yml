@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        build: [Release, Debug]
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
+      - name: build
+        run: cmake --build build -j
+      - name: test
+        run: ./build/tests
+      - name: bench smoke run
+        if: matrix.build == 'Release'
+        run: ./build/bench 200000 42
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DME_SANITIZE=ON
+      - name: build
+        run: cmake --build build -j --target tests
+      - name: test under asan + ubsan
+        run: ./build/tests
