@@ -15,6 +15,6 @@ target_compile_options(me INTERFACE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 
-add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp)
+add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp tests/test_differential.cpp)
 target_link_libraries(tests PRIVATE me)
 add_test(NAME tests COMMAND tests)
