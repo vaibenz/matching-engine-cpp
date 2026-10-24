@@ -18,3 +18,7 @@ enable_testing()
 add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp tests/test_differential.cpp)
 target_link_libraries(tests PRIVATE me)
 add_test(NAME tests COMMAND tests)
+
+add_executable(bench bench/bench.cpp)
+target_link_libraries(bench PRIVATE me)
+target_compile_options(bench PRIVATE -O3)
