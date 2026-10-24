@@ -54,7 +54,7 @@ private:
     alignas(kLine) std::size_t tail_cache_ = 0;         // consumer's copy of tail
     alignas(kLine) std::atomic<std::size_t> tail_{0};  // written by producer
     alignas(kLine) std::size_t head_cache_ = 0;         // producer's copy of head
-    alignas(kLine) T buf_[N];
+    alignas(kLine) T buf_[N]{};
 };
 
 }  // namespace me
