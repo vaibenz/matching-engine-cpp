@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "check.hpp"
+#include "me/map_book.hpp"
 #include "me/order_book.hpp"
 #include "recording_listener.hpp"
 #include "reference_book.hpp"
@@ -90,6 +91,15 @@ long run_stream(std::uint64_t seed, int commands) {
 TEST(differential_ladder_book_matches_reference) {
     for (std::uint64_t seed = 1; seed <= 300; ++seed) {
         long bad = run_stream<OrderBook>(seed, 2000);
+        if (bad >= 0) std::printf("  seed %llu diverged at command %ld\n", (unsigned long long)seed, bad);
+        CHECK(bad < 0);
+        if (bad >= 0) break;
+    }
+}
+
+TEST(differential_map_book_matches_reference) {
+    for (std::uint64_t seed = 1; seed <= 100; ++seed) {
+        long bad = run_stream<MapBook>(seed, 2000);
         if (bad >= 0) std::printf("  seed %llu diverged at command %ld\n", (unsigned long long)seed, bad);
         CHECK(bad < 0);
         if (bad >= 0) break;

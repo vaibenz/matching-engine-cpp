@@ -11,6 +11,7 @@
 
 #include "clock.hpp"
 #include "flow.hpp"
+#include "me/map_book.hpp"
 #include "me/order_book.hpp"
 
 using namespace me;
@@ -124,9 +125,11 @@ int main(int argc, char** argv) {
 
     Clock clk;
     run<OrderBook<CountingListener>>("ladder", cmds, clk);
+    run<MapBook<CountingListener>>("std::map", cmds, clk);
 
     std::printf("\nsparse book (levels 1,000 ticks apart, every command moves the touch):\n");
     auto sparse = sparse_flow(n);
     run<OrderBook<CountingListener>>("ladder", sparse, clk);
+    run<MapBook<CountingListener>>("std::map", sparse, clk);
     return 0;
 }
