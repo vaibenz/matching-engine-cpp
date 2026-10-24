@@ -50,9 +50,18 @@ public:
         if (qty <= 0) return reject(id, RejectReason::InvalidQuantity);
         if (has_price(type) && !valid_price(price)) return reject(id, RejectReason::InvalidPrice);
         if (ids_.count(id)) return reject(id, RejectReason::DuplicateOrderId);
+        if (type == OrderType::PostOnly && would_cross(side, price))
+            return reject(id, RejectReason::PostOnlyWouldTake);
 
         const Price limit = has_price(type) ? price : market_limit(side);
         listener_.on_accepted(id, side, type, has_price(type) ? price : 0, qty);
+
+        // FOK checks liquidity before touching the book, so a failed fill
+        // or kill leaves it exactly as it was.
+        if (type == OrderType::FOK && available_to_take(side, limit, qty) < qty) {
+            listener_.on_cancelled(id, qty, CancelReason::FillOrKillFailed);
+            return 0;
+        }
 
         const Qty remaining = match(id, side, limit, qty);
         if (remaining > 0) {
@@ -77,6 +86,34 @@ public:
         unlink(idx);
         pool_.free(idx);
         listener_.on_cancelled(id, cancelled, CancelReason::UserRequested);
+        return true;
+    }
+
+    // Reducing quantity at the same price keeps queue position. A price
+    // change or a quantity increase loses priority: the order is pulled and
+    // re-entered as a fresh limit order, and may trade if it now crosses.
+    bool modify(OrderId id, Price new_price, Qty new_qty) {
+        auto it = ids_.find(id);
+        if (it == ids_.end()) return reject(id, RejectReason::UnknownOrderId), false;
+        if (new_qty <= 0) return reject(id, RejectReason::InvalidQuantity), false;
+        if (!valid_price(new_price)) return reject(id, RejectReason::InvalidPrice), false;
+
+        const std::uint32_t idx = it->second;
+        Order& o = pool_[idx];
+        if (new_price == o.price && new_qty <= o.remaining) {
+            ladder(o.side)[o.price].total -= o.remaining - new_qty;
+            o.remaining = new_qty;
+            listener_.on_modified(id, new_price, new_qty);
+            return true;
+        }
+
+        const Side side = o.side;
+        ids_.erase(it);
+        unlink(idx);
+        pool_.free(idx);
+        listener_.on_modified(id, new_price, new_qty);
+        const Qty remaining = match(id, side, new_price, new_qty);
+        if (remaining > 0) rest(id, side, new_price, remaining);
         return true;
     }
 
@@ -132,6 +169,28 @@ private:
 
     std::vector<Level>& ladder(Side s) { return s == Side::Buy ? bids_ : asks_; }
     const std::vector<Level>& ladder(Side s) const { return s == Side::Buy ? bids_ : asks_; }
+
+    static bool crosses(Side taker, Price limit, Price resting) {
+        return taker == Side::Buy ? resting <= limit : resting >= limit;
+    }
+
+    bool would_cross(Side side, Price price) const {
+        return side == Side::Buy ? best_ask_ <= max_price_ && best_ask_ <= price
+                                 : best_bid_ >= 1 && best_bid_ >= price;
+    }
+
+    // Liquidity an incoming order could take right now, stopping once it
+    // reaches `wanted`.
+    Qty available_to_take(Side side, Price limit, Qty wanted) const {
+        Qty got = 0;
+        const auto& opp = ladder(opposite(side));
+        if (side == Side::Buy) {
+            for (Price p = best_ask_; p <= max_price_ && crosses(side, limit, p) && got < wanted; ++p) got += opp[p].total;
+        } else {
+            for (Price p = best_bid_; p >= 1 && crosses(side, limit, p) && got < wanted; --p) got += opp[p].total;
+        }
+        return got;
+    }
 
     // Walk the opposite side from the touch while it still crosses `limit`.
     // Trades print at the maker's price. Returns the unfilled quantity.
