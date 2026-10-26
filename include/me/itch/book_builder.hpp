@@ -26,6 +26,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include <memory>
@@ -137,6 +138,8 @@ public:
         return i < levels_.size() && levels_[i].price == price ? &levels_[i] : nullptr;
     }
 
+    const PxLevel* find(std::uint32_t price) const { return const_cast<LevelSide*>(this)->find(price); }
+
     PxLevel& find_or_insert(std::uint32_t price) {
         std::size_t i = position(price);
         if (i < levels_.size() && levels_[i].price == price) return levels_[i];
@@ -174,6 +177,7 @@ private:
 
 struct StockBook {
     char symbol[8] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
+    std::uint16_t locate = 0;
     LevelSide bids{true};
     LevelSide asks{false};
     std::uint64_t messages = 0;
@@ -194,6 +198,8 @@ struct StockBook {
 // Event hooks, called after the book has been updated. The default does nothing
 // and compiles away.
 struct NullObserver {
+    // before a message for this stock is applied (the book is still as it was)
+    void before(std::uint64_t /*ts*/, const StockBook&) {}
     void on_add(std::uint64_t /*ts*/, const StockBook&, const BookOrder&) {}
     // executed: shares taken from this order at price; remaining is what is left
     void on_execute(std::uint64_t /*ts*/, const StockBook&, const BookOrder&, std::uint32_t /*shares*/,
@@ -226,6 +232,9 @@ public:
         ++stats_.messages;
         const auto t = static_cast<std::uint8_t>(m.p[0]);
         if (t < 128) ++stats_.by_type[t];
+        if constexpr (!std::is_same_v<Observer, NullObserver>) {
+            if (affects_book(m.type())) obs_.before(m.timestamp(), book(m.locate()));
+        }
         switch (m.type()) {
             case 'R': directory(m); break;
             case 'A':
@@ -273,7 +282,11 @@ public:
     }
 
     StockBook& book(std::uint16_t locate) {
-        if (locate >= books_.size()) books_.resize(static_cast<std::size_t>(locate) + 1);
+        if (locate >= books_.size()) {
+            std::size_t old = books_.size();
+            books_.resize(static_cast<std::size_t>(locate) + 1);
+            for (std::size_t i = old; i < books_.size(); ++i) books_[i].locate = static_cast<std::uint16_t>(i);
+        }
         return books_[locate];
     }
     const std::vector<StockBook>& books() const { return books_; }
@@ -297,6 +310,7 @@ public:
 
 private:
     static bool touches_order(char t) { return t == 'E' || t == 'C' || t == 'X' || t == 'D' || t == 'U'; }
+    static bool affects_book(char t) { return touches_order(t) || t == 'A' || t == 'F' || t == 'P'; }
 
     void directory(const Message& m) {
         StockBook& b = book(m.locate());

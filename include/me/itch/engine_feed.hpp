@@ -158,8 +158,13 @@ public:
     Book& book(std::size_t i) { return *books_[i]; }
     std::uint16_t locate(std::size_t i) const { return state_[i].locate; }
 
+    // Mean virtual time between engine commands. Messages within one command are
+    // a nanosecond apart.
+    void set_mean_gap_ns(std::uint64_t ns) { mean_gap_ns_ = ns; }
+
     // Runs one engine command on a skewed random stock. Returns its index.
     std::size_t step() {
+        if (mean_gap_ns_) clock_ += rng_() % (2 * mean_gap_ns_ + 1);
         // Skew: half the traffic goes to the first eighth of the stocks.
         std::size_t n = books_.size();
         std::size_t i = rng_() % 2 == 0 ? rng_() % std::max<std::size_t>(1, n / 8) : rng_() % n;
@@ -235,6 +240,7 @@ private:
     std::vector<Stock> state_;
     std::uint64_t clock_ = 34'200'000'000'000ULL;  // 09:30:00 in nanoseconds since midnight
     std::uint64_t next_ref_ = 0, next_match_ = 0;
+    std::uint64_t mean_gap_ns_ = 0;
     OrderId next_id_ = 0;
 };
 

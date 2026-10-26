@@ -8,8 +8,6 @@
 // (for example 01302019.NASDAQ_ITCH50.gz). Files are read in large chunks and
 // gzip is decompressed on the fly with zlib, so the whole day never has to fit
 // in memory.
-#include <zlib.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -20,6 +18,7 @@
 
 #include "me/itch/book_builder.hpp"
 #include "me/itch/engine_feed.hpp"
+#include "me/itch/file_reader.hpp"
 #include "me/itch/messages.hpp"
 
 using namespace me::itch;
@@ -28,60 +27,6 @@ using Clock = std::chrono::steady_clock;
 namespace {
 
 // Reads raw or gzip files through zlib (gzread passes plain files through).
-// Calls on_batch(const Message*, n) with every complete message in each chunk read.
-template <class F>
-std::uint64_t stream_batches(const std::string& path, F&& on_batch, std::uint64_t* bytes) {
-    gzFile f = gzopen(path.c_str(), "rb");
-    if (!f) throw std::runtime_error("cannot open " + path);
-    gzbuffer(f, 1 << 20);
-    std::vector<std::uint8_t> buf(16 << 20);
-    std::vector<Message> batch;
-    batch.reserve(1 << 20);
-    std::size_t have = 0;
-    std::uint64_t messages = 0;
-    for (;;) {
-        int n = gzread(f, buf.data() + have, static_cast<unsigned>(buf.size() - have));
-        if (n < 0) throw std::runtime_error("read error in " + path);
-        if (n == 0) break;
-        *bytes += static_cast<std::uint64_t>(n);
-        have += static_cast<std::size_t>(n);
-        batch.clear();
-        std::size_t used = Framer::each(buf.data(), have, [&](const Message& m) { batch.push_back(m); });
-        messages += batch.size();
-        on_batch(batch.data(), batch.size());
-        std::memmove(buf.data(), buf.data() + used, have - used);
-        have -= used;
-    }
-    gzclose(f);
-    return messages;
-}
-
-template <class F>
-std::uint64_t stream_file(const std::string& path, F&& on_message, std::uint64_t* bytes) {
-    gzFile f = gzopen(path.c_str(), "rb");
-    if (!f) throw std::runtime_error("cannot open " + path);
-    gzbuffer(f, 1 << 20);
-    std::vector<std::uint8_t> buf(16 << 20);
-    std::size_t have = 0;
-    std::uint64_t messages = 0;
-    for (;;) {
-        int n = gzread(f, buf.data() + have, static_cast<unsigned>(buf.size() - have));
-        if (n < 0) throw std::runtime_error("read error in " + path);
-        if (n == 0) break;
-        *bytes += static_cast<std::uint64_t>(n);
-        have += static_cast<std::size_t>(n);
-        std::size_t used = Framer::each(buf.data(), have, [&](const Message& m) {
-            ++messages;
-            on_message(m);
-        });
-        std::memmove(buf.data(), buf.data() + used, have - used);  // keep a partial message for the next read
-        have -= used;
-    }
-    gzclose(f);
-    if (have != 0) std::fprintf(stderr, "warning: %zu trailing bytes do not form a complete message\n", have);
-    return messages;
-}
-
 std::string money(std::uint64_t price) {  // four implied decimals
     char s[32];
     std::snprintf(s, sizeof s, "%llu.%04llu", static_cast<unsigned long long>(price / 10000),
@@ -91,6 +36,7 @@ std::string money(std::uint64_t price) {  // four implied decimals
 
 int synthetic(std::uint64_t target, const std::string& out) {
     SyntheticSession session(1000, 7);
+    session.set_mean_gap_ns(36'000'000'000'000ULL / std::max<std::uint64_t>(target, 1));  // about 6 hours of trading
     std::ofstream f(out, std::ios::binary);
     std::uint64_t written = 0;
     auto flush = [&] {
