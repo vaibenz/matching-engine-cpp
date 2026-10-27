@@ -6,7 +6,7 @@ This is a rewrite of my Java [order-book-engine](https://github.com/vaibenz/orde
 
 It also reads the real thing. `itch_replay` streams a Nasdaq TotalView-ITCH 5.0 day file and rebuilds the full depth, order by order book of every stock on the exchange, and `mm_backtest` runs a passive market making strategy on those books with queue position and latency modelled.
 
-* **ITCH 5.0:** zero copy parsing at about 95M messages a second, and books for every stock rebuilt at about 160 ns per message with millions of live orders.
+* **ITCH 5.0:** zero copy parsing at about 95M messages a second, and books for every stock rebuilt at about 160 ns per message with millions of live orders. On a full real Nasdaq day, 368 million messages and 8,695 stocks, with zero unknown references or overfills.
 * **Tested against the engine:** engines for 40 stocks publish an ITCH feed the way an exchange does, and the rebuilt books must match theirs (levels, quantities, order counts and queue order) after every message.
 * **Backtest:** fills respect queue position and latency, and every fill is marked out at 100 ms, 1 s and 10 s to measure adverse selection.
 
@@ -43,6 +43,34 @@ Results on a 30 million message synthetic session (1,000 stocks, about 3 million
 
 A third prefetch stage for an order's queue neighbours was measured too and made no difference, so it isn't there.
 
+### A real day: Nasdaq, 30 January 2019
+
+The full TotalView-ITCH 5.0 file for 30 January 2019 (4.35 GB compressed, 11.2 GB of messages), replayed on my laptop under WSL 2:
+
+| | |
+|---|---|
+| messages | 368,366,634 |
+| stocks with order activity | 8,695 |
+| peak live orders | 1,742,866 |
+| live orders at the close | 0 |
+| unknown references, overfills, duplicate adds | **0, 0, 0** |
+| books locked or crossed at the end | 0 |
+| end to end time | 294 s (1.3M messages/s, 799 ns per message) |
+
+The correctness line is the one that matters. Over 368 million messages, every cancel, execution, replace and delete referred to an order the rebuilt book knew about, with enough shares left, and no reference was ever added twice. Any mistake in the replace logic, the partial cancels or the index would show up there. Every order is gone by the end of the day, as it should be.
+
+The time is not comparable with the synthetic numbers above. It includes gzip decompression of the whole file on one thread, and the file sat on the Windows drive, which WSL reads through a slow translation layer. It's the cost of the whole pipeline on a laptop, not of the book.
+
+The busiest books that day:
+
+| stock | messages | shares traded | VWAP |
+|---|---|---|---|
+| QQQ | 3,642,138 | 8,410,091 | 164.80 |
+| SPY | 3,320,062 | 16,641,333 | 266.50 |
+| IWM | 2,080,796 | 3,504,052 | 147.17 |
+| AMD | 1,999,543 | 32,017,288 | 22.26 |
+| AAPL | 1,791,263 | 9,820,785 | 163.26 |
+
 ### How it's tested
 
 `tests/test_itch.cpp` checks the fields of every message type I write, the framer at every split point, and hand written scenarios for partial cancels, executions, replaces and deletes. The main test is differential. `SyntheticSession` runs one matching engine per stock and translates its events into ITCH the way an exchange does:
@@ -68,7 +96,18 @@ The builder sees only the feed. After every message batch, the stock that change
 
 The assumptions are stated, not hidden: our orders are too small to change anyone's behaviour, queues are strict price time (no hidden orders jump ahead), and the maker rebate is flat per share. `tests/test_backtest.cpp` pins the fill model on feeds where the answer can be worked out on paper (queue position, fills from behind, trade throughs, latency, the inventory limit, markouts). Planting a queue position bug or removing latency each breaks those tests.
 
-On synthetic flow the P&L means nothing, because the flow is random. The real numbers come from running it on a Nasdaq day.
+On synthetic flow the P&L means nothing, because the flow is random. On the real day (30 January 2019, one lot of 100 shares, inventory limit 500, 50 µs latency, $0.002 per share rebate):
+
+| stock | fills | shares | spread P&L | rebates | net P&L | markout, cents/share at 100 ms / 1 s / 10 s |
+|---|---|---|---|---|---|---|
+| AAPL | 10,551 | 724,781 | -3,997 | +1,450 | -2,548 | -0.24 / -0.28 / -0.50 |
+| MSFT | 11,886 | 793,390 | -2,807 | +1,587 | -1,220 | -0.22 / -0.24 / -0.30 |
+| NVDA | 12,439 | 387,162 | -1,244 | +774 | -469 | -0.21 / -0.32 / -0.39 |
+| TSLA | 3,031 | 186,015 | -1,801 | +372 | -1,429 | +0.79 / +0.69 / +0.83 |
+| AMZN | 2,072 | 136,435 | -635 | +273 | -362 | +2.24 / +0.20 / -4.86 |
+| **total** | | **2,227,783** | **-10,484** | | **-6,028** | |
+
+It loses money, and the markouts say why. In the three liquid, one cent wide names, fills are followed by the price moving against us, a little more the longer you wait: that is adverse selection. We get filled mostly when someone better informed wants to trade, and the rebate covers only part of it. This is the expected result for a quote that never leans on inventory or steps back when the book thins, and it's exactly what a backtest with optimistic fills (no queue, no latency) would hide. In AMZN the price at first moves our way and then, by 10 s, hard against us, the pattern of fills just before a move. TSLA is the odd one out: fills were followed by moves in our favour, yet it still lost, most likely on inventory held at the limit through the day's trend and marked at the last mid. Making this strategy profitable is the next step, not a claim.
 
 ## Design
 
@@ -176,8 +215,9 @@ tests/                      scenario, differential and fuzz tests
 
 ## What I'd add next
 
-* Run the replay and the backtest on several real Nasdaq days and report the numbers here
-* Inventory skew and spread conditions in the strategy, and fees beyond a flat rebate
+* Inventory skew and spread conditions in the strategy, measured against the 30 January 2019 baseline above, then checked on other days so it isn't fitted to one
+* Time the replay from the Linux filesystem and on uncompressed data, to separate the book from decompression and I/O
+* Fees beyond a flat rebate
 * An exchange around the engine: binary order entry over TCP and market data over UDP multicast, with gap recovery from a journal
 
 * Prefault and `mlock` the ladder and pool so the first commands don't take page faults
