@@ -6,7 +6,7 @@ This is a rewrite of my Java [order-book-engine](https://github.com/vaibenz/orde
 
 It also reads the real thing. `itch_replay` streams a Nasdaq TotalView-ITCH 5.0 day file and rebuilds the full depth, order by order book of every stock on the exchange, and `mm_backtest` runs a passive market making strategy on those books with queue position and latency modelled.
 
-* **ITCH 5.0:** zero copy parsing at about 95M messages a second, and books for every stock rebuilt at about 160 ns per message with millions of live orders. On a full real Nasdaq day, 368 million messages and 8,695 stocks, with zero unknown references or overfills.
+* **ITCH 5.0:** zero copy parsing at about 95M messages a second, and books for every stock rebuilt at about 160 ns per message with millions of live orders. On a full real Nasdaq day, 368 million messages and 8,695 stocks in 113 s on one laptop core including gzip decompression, with zero unknown references or overfills.
 * **Tested against the engine:** engines for 40 stocks publish an ITCH feed the way an exchange does, and the rebuilt books must match theirs (levels, quantities, order counts and queue order) after every message.
 * **Backtest:** fills respect queue position and latency, and every fill is marked out at 100 ms, 1 s and 10 s to measure adverse selection.
 
@@ -55,11 +55,12 @@ The full TotalView-ITCH 5.0 file for 30 January 2019 (4.35 GB compressed, 11.2 G
 | live orders at the close | 0 |
 | unknown references, overfills, duplicate adds | **0, 0, 0** |
 | books locked or crossed at the end | 0 |
-| end to end time | 294 s (1.3M messages/s, 799 ns per message) |
+| end to end, file on the Linux disk | **113 s (3.3M messages/s, 307 ns per message)** |
+| end to end, file on the Windows drive | 294 s (1.3M messages/s, 799 ns per message) |
 
 The correctness line is the one that matters. Over 368 million messages, every cancel, execution, replace and delete referred to an order the rebuilt book knew about, with enough shares left, and no reference was ever added twice. Any mistake in the replace logic, the partial cancels or the index would show up there. Every order is gone by the end of the day, as it should be.
 
-The time is not comparable with the synthetic numbers above. It includes gzip decompression of the whole file on one thread, and the file sat on the Windows drive, which WSL reads through a slow translation layer. It's the cost of the whole pipeline on a laptop, not of the book.
+Both times include decompressing all 11.2 GB on one thread, so they are not directly comparable with the synthetic numbers above, which read an uncompressed file. Moving the file from the Windows drive (which WSL reads through a slow translation layer) to the Linux disk cut the run from 294 s to 113 s. That run was almost entirely CPU (110 s user, 3 s system): one core decompressing and rebuilding every book of the day in under two minutes.
 
 The busiest books that day:
 
@@ -216,7 +217,7 @@ tests/                      scenario, differential and fuzz tests
 ## What I'd add next
 
 * Inventory skew and spread conditions in the strategy, measured against the 30 January 2019 baseline above, then checked on other days so it isn't fitted to one
-* Time the replay from the Linux filesystem and on uncompressed data, to separate the book from decompression and I/O
+* Time the replay on uncompressed data, to separate the book from decompression
 * Fees beyond a flat rebate
 * An exchange around the engine: binary order entry over TCP and market data over UDP multicast, with gap recovery from a journal
 
