@@ -1,6 +1,7 @@
 // Replays random command streams through the real book and the naive
 // reference book. After every command both must have produced exactly the
-// same events, and every 16 commands the same depth on both sides.
+// same events, and every 16 commands the same depth on both sides. The ladder
+// book also has its internal bookkeeping audited after every single command.
 #include <cstdio>
 #include <random>
 #include <string>
@@ -79,6 +80,9 @@ long run_stream(std::uint64_t seed, int commands) {
             ref.modify(target, p, q);
         }
         if (a != b) return i;
+        if constexpr (requires { book.check_invariants(); }) {
+            if (!book.check_invariants()) return i;
+        }
         // events alone miss bookkeeping bugs (a wrong level total only
         // shows up in depth or a later FOK), so compare depth as we go
         if (i % 16 == 0 && !same_depth(book, ref)) return i;

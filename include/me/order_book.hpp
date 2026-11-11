@@ -150,6 +150,39 @@ public:
     std::size_t resting_orders() const { return ids_.size(); }
     Listener& listener() { return listener_; }
 
+    // Walks every level and checks the internal bookkeeping the hot path
+    // relies on but never re-derives: queue links, level totals and counts,
+    // the occupancy bitmaps, the cached best prices, the id index and the
+    // pool's live count. O(max_price + orders), so it is for tests only.
+    bool check_invariants() const {
+        std::size_t orders = 0;
+        for (Side s : {Side::Buy, Side::Sell}) {
+            const auto& lv = ladder(s);
+            const PriceBitmap& bits = s == Side::Buy ? bid_bits_ : ask_bits_;
+            Price best_seen = kNone;
+            for (Price p = 1; p <= max_price_; ++p) {
+                const Level& l = lv[static_cast<std::size_t>(p)];
+                if (bits.test(p) != (l.count > 0)) return false;
+                Qty total = 0;
+                std::uint32_t count = 0, prev = kNil;
+                for (std::uint32_t i = l.head; i != kNil; prev = i, i = pool_[i].next) {
+                    const Order& o = pool_[i];
+                    if (o.prev != prev || o.side != s || o.price != p || o.remaining <= 0) return false;
+                    if (ids_.find(o.id) != i) return false;
+                    total += o.remaining;
+                    if (++count > l.count) return false;  // also stops a cycle
+                }
+                if (l.tail != prev || count != l.count || total != l.total) return false;
+                if (count > 0 && (s == Side::Sell ? best_seen == kNone : true)) best_seen = p;
+                orders += count;
+            }
+            if (s == Side::Buy && best_bid_ != (best_seen == kNone ? 0 : best_seen)) return false;
+            if (s == Side::Sell && best_ask_ != (best_seen == kNone ? max_price_ + 1 : best_seen)) return false;
+        }
+        if (best_bid_ >= 1 && best_ask_ <= max_price_ && best_bid_ >= best_ask_) return false;  // crossed
+        return orders == ids_.size() && orders == pool_.live();
+    }
+
 private:
     bool valid_price(Price p) const { return p >= 1 && p <= max_price_; }
 
