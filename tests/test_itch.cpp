@@ -5,6 +5,7 @@
 // same price levels, the same quantities, the same order counts, and the same
 // queue order within each level.
 #include <cstdio>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -201,4 +202,54 @@ TEST(itch_differential_against_the_matching_engine) {
         CHECK(builder.stats().by_type['X'] > 1000);
         CHECK(builder.stats().by_type['C'] > 1000);
     }
+}
+
+// on_batch is what itch_replay and mm_backtest use by default: the same
+// messages as on(), but with the index slot and the order for messages further
+// ahead prefetched while the current one is applied. A prefetch may only ever
+// be a hint, so feeding a day through on_batch, in batches of any size, must
+// leave exactly the books, queues and counters that on() leaves.
+TEST(itch_batched_replay_matches_message_by_message) {
+    SyntheticSession session(30, 7);
+    for (int step = 0; step < 40'000; ++step) session.step();
+    const auto& feed_bytes = session.writer().buffer();
+    std::vector<Message> msgs;
+    Framer::each(feed_bytes.data(), feed_bytes.size(), [&](const Message& m) { msgs.push_back(m); });
+
+    BookBuilder<> one;
+    for (const Message& m : msgs) one.on(m);
+
+    BookBuilder<> batched;
+    std::mt19937_64 rng(11);
+    for (std::size_t i = 0; i < msgs.size();) {
+        std::size_t k = std::min<std::size_t>(msgs.size() - i, 1 + rng() % (rng() % 4 == 0 ? 3 : 4000));
+        batched.on_batch(msgs.data() + i, k);
+        i += k;
+    }
+
+    CHECK_EQ(batched.stats().messages, one.stats().messages);
+    CHECK_EQ(batched.stats().unknown_ref, one.stats().unknown_ref);
+    CHECK_EQ(batched.stats().overfill, one.stats().overfill);
+    CHECK_EQ(batched.stats().duplicate_ref, one.stats().duplicate_ref);
+    CHECK_EQ(batched.live_orders(), one.live_orders());
+    CHECK(batched.live_orders() > 1000);
+    bool same = batched.books().size() == one.books().size();
+    for (std::size_t b = 0; same && b < one.books().size(); ++b) {
+        const StockBook &want = one.books()[b], &got = batched.books()[b];
+        same = want.messages == got.messages && want.executed_shares == got.executed_shares &&
+               want.executed_notional == got.executed_notional;
+        for (char side : {'B', 'S'}) {
+            const LevelSide &w = want.side(side), &g = got.side(side);
+            if (!same || w.size() != g.size()) {
+                same = false;
+                break;
+            }
+            for (std::size_t i = 0; same && i < w.size(); ++i) {
+                same = w.at(i).price == g.at(i).price && w.at(i).total == g.at(i).total && w.at(i).count == g.at(i).count;
+                const auto loc = static_cast<std::uint16_t>(b);
+                same = same && one.queue(loc, side, w.at(i).price) == batched.queue(loc, side, g.at(i).price);
+            }
+        }
+    }
+    CHECK(same);
 }
