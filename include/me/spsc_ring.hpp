@@ -43,8 +43,13 @@ public:
         return true;
     }
 
+    // Safe to call from any thread. Head is read first: tail only grows, so the
+    // tail read after it is never behind it and the difference cannot wrap.
+    // Both sides may move between the two reads, so the result is clamped to N.
     std::size_t size_approx() const {
-        return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_acquire);
+        const std::size_t h = head_.load(std::memory_order_acquire);
+        const std::size_t t = tail_.load(std::memory_order_acquire);
+        return t - h < N ? t - h : N;
     }
 
 private:
