@@ -317,6 +317,10 @@ private:
         std::memcpy(b.symbol, m.directory_stock().data(), 8);
     }
 
+    static void check_ref(std::uint64_t ref) {
+        if (ref >= RefIndex::kMaxRef) throw std::runtime_error("order reference out of range");
+    }
+
     std::uint32_t alloc() {
         if (free_ != kNone) {
             std::uint32_t i = free_;
@@ -334,6 +338,7 @@ private:
 
     void add(std::uint64_t ts, std::uint16_t locate, std::uint64_t ref, char side, std::uint32_t price,
              std::uint32_t shares) {
+        check_ref(ref);  // before anything is touched, so a throw leaves the book as it was
         if (ids_.contains(ref)) {
             ++stats_.duplicate_ref;
             return;
@@ -418,6 +423,7 @@ private:
             ++stats_.unknown_ref;
             return;
         }
+        check_ref(m.replace_new());  // a bad new reference must not cost the old order
         const std::uint16_t locate = orders_[i].locate;
         const char side = orders_[i].side;
         reduce(m.timestamp(), m.replace_old(), UINT32_MAX);

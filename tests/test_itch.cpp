@@ -179,6 +179,42 @@ TEST(itch_builder_counts_feed_anomalies) {
     CHECK_EQ(b.stats().duplicate_ref, 1u);
 }
 
+// A reference the index cannot hold is a corrupt feed and throws, but it must
+// throw before anything changes: a replay that catches the error (or a test
+// that inspects the book afterwards) must not find an order linked into a
+// level that the index has no record of, or a replaced order already gone.
+TEST(itch_builder_rejects_out_of_range_reference_without_side_effects) {
+    Writer w;
+    BookBuilder<> b;
+    w.add(1, 1, 5, 'B', 100, "X", 10'000);
+    feed(b, w);
+    const std::uint64_t too_big = RefIndex::kMaxRef;
+
+    auto throws = [&](Writer& wr) {
+        bool threw = false;
+        try {
+            feed(b, wr);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        wr.clear();
+        return threw;
+    };
+
+    w.add(2, 1, too_big, 'B', 300, "X", 10'100);
+    CHECK(throws(w));
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK(b.book(1).bids.find(10'100) == nullptr);
+    CHECK_EQ(b.book(1).bids.size(), 1u);
+
+    w.replace(3, 1, 5, too_big, 200, 10'200);
+    CHECK(throws(w));
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK((b.queue(1, 'B', 10'000) == std::vector<std::uint64_t>{5}));
+    CHECK_EQ(b.book(1).bids.best().total, 100u);
+    CHECK(b.book(1).bids.find(10'200) == nullptr);
+}
+
 TEST(itch_differential_against_the_matching_engine) {
     for (std::uint64_t seed : {1u, 2u, 3u}) {
         SyntheticSession session(40, seed);
