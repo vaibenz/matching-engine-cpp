@@ -215,6 +215,35 @@ TEST(itch_builder_rejects_out_of_range_reference_without_side_effects) {
     CHECK(b.book(1).bids.find(10'200) == nullptr);
 }
 
+// U whose new reference is already a live order is a corrupt feed. It used
+// to delete the old order and then drop the add as a duplicate, so one bad
+// message silently cost a resting order. Now it is counted and changes
+// nothing, like an out of range reference.
+TEST(itch_builder_replace_onto_live_reference_keeps_old_order) {
+    Writer w;
+    BookBuilder<> b;
+    w.add(1, 1, 5, 'B', 100, "X", 10'000);
+    w.add(2, 1, 6, 'B', 300, "X", 9'900);
+    w.replace(3, 1, 5, 6, 200, 10'100);
+    feed(b, w);
+    CHECK_EQ(b.stats().duplicate_ref, 1u);
+    CHECK_EQ(b.live_orders(), 2u);
+    CHECK((b.queue(1, 'B', 10'000) == std::vector<std::uint64_t>{5}));
+    CHECK_EQ(b.order(6)->shares, 300u);
+    CHECK_EQ(b.order(6)->price, 9'900u);
+    CHECK(b.book(1).bids.find(10'100) == nullptr);
+
+    // replacing an order with its own reference is still a plain replace
+    w.clear();
+    w.replace(4, 1, 5, 5, 50, 10'050);
+    feed(b, w);
+    CHECK_EQ(b.stats().duplicate_ref, 1u);
+    const BookOrder* o5 = b.order(5);
+    CHECK(o5 != nullptr);
+    if (o5) CHECK_EQ(o5->price, 10'050u);
+    CHECK(b.book(1).bids.find(10'000) == nullptr);
+}
+
 TEST(itch_differential_against_the_matching_engine) {
     for (std::uint64_t seed : {1u, 2u, 3u}) {
         SyntheticSession session(40, seed);
