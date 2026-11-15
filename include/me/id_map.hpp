@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <vector>
@@ -14,7 +15,8 @@ namespace me {
 // so heavy cancel traffic never degrades probe lengths.
 class IdMap {
 public:
-    explicit IdMap(std::size_t expected = 1 << 16) { rehash(std::bit_ceil(expected * 2)); }
+    // At least two slots: a one slot table would need a hash shift of 64.
+    explicit IdMap(std::size_t expected = 1 << 16) { rehash(std::bit_ceil(std::max<std::size_t>(expected * 2, 2))); }
 
     std::uint32_t find(OrderId key) const {
         for (std::size_t i = slot(key);; i = (i + 1) & mask_) {

@@ -105,3 +105,15 @@ TEST(input_validation) {
     CHECK((f.log == Log{"reject 1 bad_qty", "reject 2 bad_px", "reject 3 bad_px", "accept 4 B LMT 100x5",
                         "rest 4 B 100x5", "reject 4 dup_id"}));
 }
+
+// A book sized for zero orders must still work (its id map used to hash with
+// an undefined 64 bit shift).
+TEST(book_with_zero_expected_orders) {
+    me::OrderBook<> b(100, {}, 0);
+    b.submit(1, me::Side::Sell, me::OrderType::Limit, 50, 10);
+    b.submit(2, me::Side::Buy, me::OrderType::Limit, 50, 4);
+    CHECK_EQ(b.quantity_at(me::Side::Sell, 50), 6);
+    CHECK(b.cancel(1));
+    CHECK_EQ(b.resting_orders(), 0u);
+    CHECK(b.check_invariants());
+}

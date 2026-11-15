@@ -39,3 +39,17 @@ TEST(id_map_matches_unordered_map) {
         }
     }
 }
+
+// expected = 0 (or a book built with expected_orders = 0) used to make a one
+// slot table, and a one slot table has shift_ = 64: the hash shifted a 64 bit
+// value by 64, which is undefined and on x86 indexes far outside the table.
+TEST(id_map_zero_expected_size) {
+    IdMap m(0);
+    CHECK_EQ(m.find(1), me::kNil);
+    CHECK(!m.erase(1));
+    for (std::uint64_t k = 1; k <= 100; ++k) m.insert(k, static_cast<std::uint32_t>(k * 3));
+    for (std::uint64_t k = 1; k <= 100; ++k) CHECK_EQ(m.find(k), static_cast<std::uint32_t>(k * 3));
+    CHECK(m.erase(50));
+    CHECK_EQ(m.find(50), me::kNil);
+    CHECK_EQ(m.size(), 99u);
+}
