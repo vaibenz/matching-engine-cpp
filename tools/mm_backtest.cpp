@@ -6,8 +6,13 @@
 // Every stock's book is rebuilt (the builder needs every message anyway), and
 // the strategy quotes the listed symbols. See include/me/itch/backtest.hpp for
 // the fill model and its assumptions.
+#include <charconv>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -18,29 +23,69 @@
 
 using namespace me::itch;
 
+namespace {
+
+const char* kUsage =
+    "usage: mm_backtest <file>[.gz] --symbols A,B,C [--latency-us N] [--lot N] "
+    "[--max-inventory N] [--rebate dollars]\n";
+
+// A whole number in [lo, hi], nothing else. std::stoull reads "-5" as 2^64 - 5, so
+// "--latency-us -5" used to mean a latency of centuries; from_chars refuses a sign.
+bool parse_uint(const std::string& v, std::uint64_t lo, std::uint64_t hi, std::uint64_t& out) {
+    const char* end = v.data() + v.size();
+    auto [p, ec] = std::from_chars(v.data(), end, out);
+    return ec == std::errc() && p == end && !v.empty() && out >= lo && out <= hi;
+}
+
+int usage_error(const std::string& why) {
+    std::fprintf(stderr, "mm_backtest: %s\n%s", why.c_str(), kUsage);
+    return 2;
+}
+
+}  // namespace
+
+// Options are checked before the replay starts: a typo used to be skipped silently and
+// only show up as an empty report after reading the whole day.
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: mm_backtest <file>[.gz] --symbols A,B,C [--latency-us N] [--lot N] "
-                             "[--max-inventory N] [--rebate dollars]\n");
+        std::fprintf(stderr, "%s", kUsage);
         return 2;
     }
     MmConfig cfg;
     std::vector<std::string> symbols;
-    for (int i = 2; i + 1 < argc; i += 2) {
-        std::string k = argv[i], v = argv[i + 1];
+    for (int i = 2; i < argc; i += 2) {
+        std::string k = argv[i];
+        if (i + 1 >= argc) return usage_error(k + " needs a value");
+        std::string v = argv[i + 1];
+        std::uint64_t n = 0;
         if (k == "--symbols") {
             std::stringstream ss(v);
-            for (std::string s; std::getline(ss, s, ',');) symbols.push_back(s);
+            for (std::string s; std::getline(ss, s, ',');) {
+                if (s.empty()) return usage_error("empty symbol in --symbols " + v);
+                symbols.push_back(s);
+            }
         } else if (k == "--latency-us") {
-            cfg.latency_ns = std::stoull(v) * 1000;
+            if (!parse_uint(v, 0, std::numeric_limits<std::uint64_t>::max() / 1000, n))
+                return usage_error("--latency-us wants a whole number of microseconds, not " + v);
+            cfg.latency_ns = n * 1000;
         } else if (k == "--lot") {
-            cfg.lot = static_cast<std::uint32_t>(std::stoul(v));
+            if (!parse_uint(v, 1, std::numeric_limits<std::uint32_t>::max(), n))
+                return usage_error("--lot wants a positive whole number of shares, not " + v);
+            cfg.lot = static_cast<std::uint32_t>(n);
         } else if (k == "--max-inventory") {
-            cfg.max_inventory = std::stoll(v);
+            if (!parse_uint(v, 0, static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()), n))
+                return usage_error("--max-inventory wants a whole number of shares, not " + v);
+            cfg.max_inventory = static_cast<std::int64_t>(n);
         } else if (k == "--rebate") {
-            cfg.rebate_per_share = std::stod(v);
+            char* end = nullptr;
+            cfg.rebate_per_share = std::strtod(v.c_str(), &end);
+            if (v.empty() || *end != '\0' || !std::isfinite(cfg.rebate_per_share))
+                return usage_error("--rebate wants dollars per share, not " + v);
+        } else {
+            return usage_error("unknown option " + k);
         }
     }
+    if (symbols.empty()) return usage_error("--symbols is required");
 
     BookBuilder<MarketMaker> builder(MarketMaker(cfg, symbols), 1 << 22);
     std::uint64_t bytes = 0;
