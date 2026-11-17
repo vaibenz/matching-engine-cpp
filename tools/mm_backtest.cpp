@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -46,7 +47,7 @@ int usage_error(const std::string& why) {
 
 // Options are checked before the replay starts: a typo used to be skipped silently and
 // only show up as an empty report after reading the whole day.
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     if (argc < 3) {
         std::fprintf(stderr, "%s", kUsage);
         return 2;
@@ -115,4 +116,9 @@ int main(int argc, char** argv) {
     std::printf("\ntotal: %llu shares, spread pnl $%.2f, net pnl $%.2f (inventory marked at the last mid)\n",
                 static_cast<unsigned long long>(total_shares), total_spread, total);
     return 0;
+} catch (const std::exception& e) {
+    // A missing, unreadable or truncated day file throws from the reader. Report it and exit 1
+    // instead of letting std::terminate abort with a core dump.
+    std::fprintf(stderr, "mm_backtest: %s\n", e.what());
+    return 1;
 }

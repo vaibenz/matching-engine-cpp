@@ -14,7 +14,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -40,6 +42,7 @@ int synthetic(std::uint64_t target, const std::string& out) {
     SyntheticSession session(1000, 7);
     session.set_mean_gap_ns(36'000'000'000'000ULL / std::max<std::uint64_t>(target, 1));  // about 6 hours of trading
     std::ofstream f(out, std::ios::binary);
+    if (!f) throw std::runtime_error("cannot write " + out);
     std::uint64_t written = 0;
     auto flush = [&] {
         auto& b = session.writer().buffer();
@@ -54,6 +57,8 @@ int synthetic(std::uint64_t target, const std::string& out) {
         for (int i = 0; i < 10'000; ++i) session.step();
         flush();
     }
+    f.close();
+    if (!f) throw std::runtime_error("write error in " + out);  // a full disk must not look like success
     std::printf("wrote %llu messages to %s\n", static_cast<unsigned long long>(written), out.c_str());
     return 0;
 }
@@ -79,7 +84,7 @@ int usage_error(const std::string& why) {
 
 // Options are checked before anything is read: an unknown one ("--parse_only") used to be
 // skipped, so a typo cost a full replay of the day with the wrong settings.
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     if (argc >= 2 && std::string(argv[1]) == "--synthetic") {
         std::uint64_t target = 0;
         if (argc != 4) return usage_error("--synthetic wants a message count and an output file");
@@ -163,4 +168,9 @@ int main(int argc, char** argv) {
                     b.bids.size() + b.asks.size());
     }
     return 0;
+} catch (const std::exception& e) {
+    // A missing, unreadable or truncated day file throws from the reader. Report it and exit 1
+    // instead of letting std::terminate abort with a core dump.
+    std::fprintf(stderr, "itch_replay: %s\n", e.what());
+    return 1;
 }

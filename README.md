@@ -30,7 +30,7 @@ BookBuilder
 * **Paged direct index instead of a hash map.** Nasdaq hands out order references in increasing order through the day, so a reference maps straight to a slot through a page table. There's no hashing and no probing, and orders that arrived close together sit close together in memory. A page is freed when its last order goes.
 * **Software prefetching.** Most messages touch an order that is not in cache, since millions are live. Messages arrive in large chunks, so while message *i* is applied, the index slot for message *i + 16* and the order for message *i + 8* are already being loaded.
 * **Best price at the back.** Almost all activity is at or near the touch, so a level is found by scanning a few entries from the back of a sorted vector, and adding or removing a level there moves only a handful of elements.
-* **Streaming.** Files are read in 16 MB chunks, gzip is decompressed on the fly with zlib, and a message split across two reads is carried over. The day never has to fit in memory. A truncated file (a gzip stream that ends early, or a cut off last message) is an error, never a silently shorter day.
+* **Streaming.** Files are read in 16 MB chunks, gzip is decompressed on the fly with zlib, and a message split across two reads is carried over. The day never has to fit in memory. A truncated file (a gzip stream that ends early, or a cut off last message) is an error, never a silently shorter day: both tools print what went wrong and exit with status 1.
 
 Results on a 30 million message synthetic session (1,000 stocks, about 3 million live orders at the end; `itch_replay --synthetic`), 2 vCPU cloud VM:
 
