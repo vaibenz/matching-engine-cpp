@@ -9,7 +9,9 @@
 // gzip is decompressed on the fly with zlib, so the whole day never has to fit
 // in memory.
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -56,13 +58,37 @@ int synthetic(std::uint64_t target, const std::string& out) {
     return 0;
 }
 
+const char* kUsage =
+    "usage: itch_replay <file>[.gz] [--top N] [--parse-only] [--no-prefetch]\n"
+    "       itch_replay --synthetic <messages> <out file>\n";
+
+// A whole number in [lo, hi], nothing else: std::stoi threw out of main on "--top x",
+// and std::stoull read "--synthetic -1" as 2^64 - 1 messages.
+bool parse_uint(const std::string& v, std::uint64_t lo, std::uint64_t hi, std::uint64_t& out) {
+    const char* end = v.data() + v.size();
+    auto [p, ec] = std::from_chars(v.data(), end, out);
+    return ec == std::errc() && p == end && !v.empty() && out >= lo && out <= hi;
+}
+
+int usage_error(const std::string& why) {
+    std::fprintf(stderr, "itch_replay: %s\n%s", why.c_str(), kUsage);
+    return 2;
+}
+
 }  // namespace
 
+// Options are checked before anything is read: an unknown one ("--parse_only") used to be
+// skipped, so a typo cost a full replay of the day with the wrong settings.
 int main(int argc, char** argv) {
-    if (argc >= 4 && std::string(argv[1]) == "--synthetic") return synthetic(std::stoull(argv[2]), argv[3]);
-    if (argc < 2) {
-        std::fprintf(stderr, "usage: itch_replay <file>[.gz] [--top N] [--parse-only]\n"
-                             "       itch_replay --synthetic <messages> <out file>\n");
+    if (argc >= 2 && std::string(argv[1]) == "--synthetic") {
+        std::uint64_t target = 0;
+        if (argc != 4) return usage_error("--synthetic wants a message count and an output file");
+        if (!parse_uint(argv[2], 1, std::uint64_t{1} << 40, target))
+            return usage_error(std::string("--synthetic wants a positive number of messages, not ") + argv[2]);
+        return synthetic(target, argv[3]);
+    }
+    if (argc < 2 || argv[1][0] == '\0' || argv[1][0] == '-') {
+        std::fprintf(stderr, "%s", kUsage);
         return 2;
     }
     std::string path = argv[1];
@@ -70,9 +96,19 @@ int main(int argc, char** argv) {
     bool parse_only = false, no_prefetch = false;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--top" && i + 1 < argc) top = std::stoi(argv[++i]);
-        if (a == "--parse-only") parse_only = true;
-        if (a == "--no-prefetch") no_prefetch = true;
+        if (a == "--top") {
+            std::uint64_t n = 0;
+            if (i + 1 >= argc) return usage_error("--top needs a value");
+            if (!parse_uint(argv[++i], 0, 1'000'000, n))
+                return usage_error(std::string("--top wants a whole number of stocks, not ") + argv[i]);
+            top = static_cast<int>(n);
+        } else if (a == "--parse-only") {
+            parse_only = true;
+        } else if (a == "--no-prefetch") {
+            no_prefetch = true;
+        } else {
+            return usage_error("unknown option " + a);
+        }
     }
 
     std::uint64_t bytes = 0;
