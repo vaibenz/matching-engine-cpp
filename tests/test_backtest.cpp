@@ -137,3 +137,28 @@ TEST(backtest_markout_measures_adverse_selection) {
     CHECK(f.marked >= 2);
     CHECK(std::fabs(f.markout[1] - (-0.04)) < 1e-9);  // mid 9.96 vs 10.00: lost 4 cents a share
 }
+
+// Prices are 4 implied decimals in 32 bits, so a stock near $300,000 (Berkshire A
+// traded there in 2019) has bid + ask past 2^32. The mid used for markouts and for
+// marking the inventory must not be summed in 32 bits.
+TEST(backtest_mid_of_a_high_priced_stock_does_not_overflow) {
+    Harness h(config());
+    std::uint64_t t = kOpen;
+    const std::uint32_t bid = 2'999'900'000u, ask = 3'000'100'000u;  // $299,990 and $300,010
+    h.w.add(t, 1, 1, 'B', 100, "TEST", bid);
+    h.w.add(t + 1, 1, 2, 'S', 100, "TEST", ask);
+    h.w.add(t + 50 * us, 1, 3, 'B', 100, "TEST", bid);  // behind us
+    h.run();
+    h.w.executed(t + 100 * us, 1, 1, 100, 1);
+    h.w.executed(t + 101 * us, 1, 3, 100, 2);  // we bought 100 at $299,990
+    h.w.add(t + 200 * us, 1, 5, 'B', 100, "TEST", bid);  // the bid refills, so the mid stays $300,000
+    h.w.add(t + 2'000'000 * us, 1, 4, 'S', 100, "TEST", ask + 10'000);  // 2 s later: triggers the 1 s mark
+    h.run();
+    const auto& f = h.st().fills.at(0);
+    CHECK_EQ(f.price, bid);
+    CHECK(f.marked >= 2);
+    CHECK(std::fabs(f.markout[1] - 10.0) < 1e-6);  // mid $300,000: $10 a share in our favour
+    const auto s = h.b.observer().summary(h.st());
+    CHECK_EQ(s.inventory, 100);
+    CHECK(std::fabs(s.spread_pnl - 1000.0) < 1e-6);  // 100 shares marked $10 above cost
+}

@@ -85,7 +85,9 @@ public:
         std::uint64_t quote_updates = 0;
         std::vector<Fill> fills;
         std::size_t next_mark[3] = {0, 0, 0};
-        std::uint32_t last_mid2 = 0;  // bid + ask (twice the mid), last seen during trading hours
+        // bid + ask (twice the mid), last seen during trading hours. 64 bits: two 32 bit prices near
+        // $300,000 (Berkshire A) already sum past 2^32.
+        std::uint64_t last_mid2 = 0;
     };
 
     MarketMaker(MmConfig cfg, std::vector<std::string> symbols)
@@ -196,7 +198,7 @@ private:
         State* s = state_for(b);
         if (!s) return;
         const std::uint32_t bb = b.best_bid(), ba = b.best_ask();
-        if (bb && ba && ba > bb && trading(ts)) s->last_mid2 = bb + ba;
+        if (bb && ba && ba > bb && trading(ts)) s->last_mid2 = std::uint64_t{bb} + ba;
         steer(ts, *s, s->bid, 'B', bb, ba);
         steer(ts, *s, s->ask, 'S', bb, ba);
     }
@@ -251,7 +253,7 @@ private:
     void mark(std::uint64_t ts, State& s, const StockBook& b) {
         const std::uint32_t bb = b.best_bid(), ba = b.best_ask();
         if (!(bb && ba && ba > bb)) return;
-        const double mid = (bb + ba) / 2.0;
+        const double mid = (static_cast<double>(bb) + ba) / 2.0;
         for (std::size_t h = 0; h < 3; ++h) {
             while (s.next_mark[h] < s.fills.size() && s.fills[s.next_mark[h]].ts + kHorizons[h] <= ts) {
                 Fill& f = s.fills[s.next_mark[h]++];
