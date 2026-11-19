@@ -69,6 +69,34 @@ TEST(backtest_respects_queue_position) {
     CHECK_EQ(h.st().fills[0].price, 100'000u);
 }
 
+// Only orders that were resting before us count as ahead. A cancel of an order
+// behind us must not move us up, and a replace of an order ahead of us must: the
+// replaced order goes to the back of the queue, behind us.
+TEST(backtest_only_orders_ahead_of_us_move_us_up_the_queue) {
+    Harness h(config());
+    std::uint64_t t = kOpen;
+    h.w.add(t, 1, 1, 'B', 200, "TEST", 100'000);
+    h.w.add(t + 1, 1, 2, 'S', 100, "TEST", 100'500);           // two sided: we decide to quote
+    h.w.add(t + 100 * us, 1, 3, 'B', 100, "TEST", 100'000);    // our bid is live by now: this one is behind us
+    h.run();
+    CHECK(h.st().bid.live);
+    CHECK_EQ(h.st().bid.ahead, 200u);
+
+    h.w.cancel(t + 200 * us, 1, 3, 50);  // part of the order behind us goes away
+    h.run();
+    CHECK_EQ(h.st().bid.ahead, 200u);    // still 200 ahead of us
+
+    h.w.replace(t + 300 * us, 1, 1, 4, 200, 100'000);  // order 1 is ahead of us, and loses its priority
+    h.run();
+    CHECK_EQ(h.st().bid.ahead, 0u);
+    CHECK_EQ(h.st().inventory, 0);
+
+    h.w.executed(t + 400 * us, 1, 3, 30, 1);  // the aggressor reaches order 3, behind us: it hits us first
+    h.run();
+    CHECK_EQ(h.st().inventory, 30);
+    CHECK_EQ(h.st().bid.remaining, 70u);
+}
+
 TEST(backtest_trade_through_fills_completely) {
     Harness h(config());
     std::uint64_t t = kOpen;
