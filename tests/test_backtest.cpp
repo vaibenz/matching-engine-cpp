@@ -146,6 +146,32 @@ TEST(backtest_stops_adding_at_the_inventory_limit) {
     CHECK_EQ(h.st().max_abs_inventory, 200);
 }
 
+// At stop_ns the strategy pulls its quotes, so nothing after the stop can fill
+// it, and the mid used to mark the inventory is the last one seen before the stop.
+TEST(backtest_pulls_quotes_at_the_stop_time) {
+    MmConfig c = config();
+    c.stop_ns = kOpen + 1'000'000 * us;  // one second of trading
+    Harness h(c);
+    std::uint64_t t = kOpen;
+    h.w.add(t, 1, 1, 'B', 100, "TEST", 100'000);
+    h.w.add(t + 1, 1, 2, 'S', 100, "TEST", 100'500);
+    h.w.add(t + 100 * us, 1, 3, 'B', 100, "TEST", 100'000);  // behind us
+    h.run();
+    CHECK(h.st().bid.live);
+    CHECK(h.st().ask.live);
+
+    const std::uint64_t stop = c.stop_ns;
+    h.w.add(stop + 1 * us, 1, 4, 'S', 100, "TEST", 100'400);  // the touch moves after the stop
+    h.w.remove(stop + 100 * us, 1, 1);                        // the order ahead of us goes...
+    h.w.executed(stop + 101 * us, 1, 3, 30, 1);               // ...and one behind us trades
+    h.run();
+    CHECK(!h.st().bid.live);
+    CHECK(!h.st().ask.live);
+    CHECK_EQ(h.st().inventory, 0);
+    CHECK(h.st().fills.empty());
+    CHECK_EQ(h.st().last_mid2, std::uint64_t{100'000 + 100'500});  // not the 10.04 ask seen after the stop
+}
+
 TEST(backtest_markout_measures_adverse_selection) {
     Harness h(config());
     std::uint64_t t = kOpen;
