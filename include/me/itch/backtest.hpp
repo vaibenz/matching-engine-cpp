@@ -27,6 +27,7 @@
 // price time priority (no hidden or midpoint orders jump ahead), and the maker
 // rebate is a flat amount per share.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -144,6 +145,20 @@ public:
     // --- results
 
     const std::vector<State>& states() const { return states_; }
+
+    // Requested symbols that never had order activity in the feed (a typo, a
+    // lower case name, or a stock that did not trade that day), sorted. Their
+    // rows are simply missing from states(), so the caller should say so.
+    std::vector<std::string> not_seen() const {
+        std::vector<std::string> out;
+        for (const std::string& w : wanted_) {
+            bool seen = false;
+            for (const State& s : states_) seen = seen || s.symbol == w;
+            if (!seen) out.push_back(w);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
 
     struct Summary {
         std::string symbol;

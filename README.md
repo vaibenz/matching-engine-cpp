@@ -97,6 +97,8 @@ The builder sees only the feed. After every message batch, the stock that change
 
 The assumptions are stated, not hidden: our orders are too small to change anyone's behaviour, queues are strict price time (no hidden orders jump ahead), and the maker rebate is flat per share. `tests/test_backtest.cpp` pins the fill model on feeds where the answer can be worked out on paper (queue position, fills from behind, trade throughs, latency, the inventory limit, markouts). Planting a queue position bug or removing latency each breaks those tests.
 
+Symbols are matched exactly as Nasdaq lists them (`AAPL`, not `aapl`). A requested symbol with no order activity in the file is named on stderr instead of silently missing from the table, a symbol longer than ITCH's 8 characters is refused before the replay starts, and a run where none of the symbols traded exits with status 1.
+
 On synthetic flow the P&L means nothing, because the flow is random. On the real day (30 January 2019, one lot of 100 shares, inventory limit 500, 50 µs latency, $0.002 per share rebate):
 
 | stock | fills | shares | spread P&L | rebates | net P&L | markout, cents/share at 100 ms / 1 s / 10 s |

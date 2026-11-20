@@ -63,6 +63,9 @@ int main(int argc, char** argv) try {
             std::stringstream ss(v);
             for (std::string s; std::getline(ss, s, ',');) {
                 if (s.empty()) return usage_error("empty symbol in --symbols " + v);
+                // ITCH stock fields are 8 bytes, so a longer name can never match and
+                // used to cost a full replay for an empty report.
+                if (s.size() > 8) return usage_error("symbol " + s + " is longer than ITCH's 8 characters");
                 symbols.push_back(s);
             }
         } else if (k == "--latency-us") {
@@ -115,7 +118,11 @@ int main(int argc, char** argv) try {
     }
     std::printf("\ntotal: %llu shares, spread pnl $%.2f, net pnl $%.2f (inventory marked at the last mid)\n",
                 static_cast<unsigned long long>(total_shares), total_spread, total);
-    return 0;
+    // A symbol with no order activity has no row at all, so name it rather than let it vanish.
+    for (const std::string& s : mm.not_seen())
+        std::fprintf(stderr, "mm_backtest: no order activity for %s in this file (symbols are as Nasdaq lists them, "
+                             "e.g. AAPL)\n", s.c_str());
+    return mm.states().empty() ? 1 : 0;  // nothing to report is a failed run, not an empty success
 } catch (const std::exception& e) {
     // A missing, unreadable or truncated day file throws from the reader. Report it and exit 1
     // instead of letting std::terminate abort with a core dump.

@@ -216,3 +216,17 @@ TEST(backtest_mid_of_a_high_priced_stock_does_not_overflow) {
     CHECK_EQ(s.inventory, 100);
     CHECK(std::fabs(s.spread_pnl - 1000.0) < 1e-6);  // 100 shares marked $10 above cost
 }
+
+// A requested symbol with no order activity used to vanish from the report
+// without a word. Both a name the feed never lists and a listed stock that
+// never gets an order come back from not_seen(); a quoted stock does not.
+TEST(backtest_names_requested_symbols_that_never_traded) {
+    Writer w;
+    BookBuilder<MarketMaker> b(MarketMaker(config(), {"TEST", "QUIET", "aapl"}));
+    w.stock_directory(1, 1, "TEST");
+    w.stock_directory(2, 2, "QUIET");
+    w.add(kOpen, 1, 1, 'B', 100, "TEST", 100'000);
+    Framer::each(w.buffer().data(), w.buffer().size(), [&](const Message& m) { b.on(m); });
+    CHECK_EQ(b.observer().states().size(), std::size_t{1});
+    CHECK((b.observer().not_seen() == std::vector<std::string>{"QUIET", "aapl"}));
+}
