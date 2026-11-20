@@ -64,6 +64,7 @@ long run_stream(std::uint64_t seed, int commands) {
             Price p = mid + pick(21) - 10;
             if (pick(50) == 0) p = pick(3) == 0 ? 0 : kMaxPrice + 1 + pick(5);  // bad prices
             Qty q = pick(40) == 0 ? -pick(3) : 1 + pick(30);
+            if (pick(100) == 0) q = kMaxQty + pick(2);  // at and just over the cap
             OrderId id = pick(25) == 0 ? target : next_id++;  // occasional duplicate
             recent.emplace_back(id, p);
             book.submit(id, s, t, p, q);
@@ -75,6 +76,7 @@ long run_stream(std::uint64_t seed, int commands) {
             Price p = pick(30) == 0 ? -1 : mid + pick(21) - 10;
             if (target_px > 0 && pick(5) < 2) p = target_px;  // same price: the keep priority path
             Qty q = pick(30) == 0 ? 0 : 1 + pick(30);
+            if (pick(100) == 0) q = kMaxQty + pick(2);
             if (p > 0) recent.emplace_back(target, p);
             book.modify(target, p, q);
             ref.modify(target, p, q);

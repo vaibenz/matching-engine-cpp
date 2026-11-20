@@ -106,6 +106,31 @@ TEST(input_validation) {
                         "rest 4 B 100x5", "reject 4 dup_id"}));
 }
 
+// Quantities above kMaxQty are refused on submit and modify. Before the cap,
+// two orders of 2^62 lots at one price summed past 2^63 in the level total
+// (signed overflow), and a FOK walking those levels overflowed the same way.
+TEST(quantity_above_the_cap_is_rejected) {
+    Fixture f;
+    const Qty big = Qty{1} << 62;
+    f.book.submit(1, Side::Sell, OrderType::Limit, 100, big);
+    f.book.submit(2, Side::Sell, OrderType::Limit, 100, big);
+    f.book.submit(3, Side::Sell, OrderType::Limit, 100, kMaxQty + 1);
+    CHECK((f.log == Log{"reject 1 bad_qty", "reject 2 bad_qty", "reject 3 bad_qty"}));
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), 0);
+
+    f.log.clear();
+    f.book.submit(4, Side::Sell, OrderType::Limit, 100, kMaxQty);  // the cap itself is fine
+    f.book.submit(5, Side::Sell, OrderType::Limit, 100, kMaxQty);
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), 2 * kMaxQty);
+    CHECK(!f.book.modify(4, 100, kMaxQty + 1));
+    CHECK(!f.book.modify(4, 101, big));
+    CHECK(f.log.back() == "reject 4 bad_qty");
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), 2 * kMaxQty);
+    CHECK_EQ(f.book.submit(6, Side::Buy, OrderType::FOK, 100, kMaxQty), kMaxQty);
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), kMaxQty);
+    CHECK(f.book.check_invariants());
+}
+
 // A book sized for zero orders must still work (its id map used to hash with
 // an undefined 64 bit shift).
 TEST(book_with_zero_expected_orders) {

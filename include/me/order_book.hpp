@@ -49,7 +49,7 @@ public:
 
     // Returns the quantity filled immediately. Price is ignored for Market.
     Qty submit(OrderId id, Side side, OrderType type, Price price, Qty qty) {
-        if (qty <= 0) return reject(id, RejectReason::InvalidQuantity);
+        if (qty <= 0 || qty > kMaxQty) return reject(id, RejectReason::InvalidQuantity);
         if (has_price(type) && !valid_price(price)) return reject(id, RejectReason::InvalidPrice);
         if (ids_.contains(id)) return reject(id, RejectReason::DuplicateOrderId);
         if (type == OrderType::PostOnly && would_cross(side, price))
@@ -96,7 +96,7 @@ public:
     bool modify(OrderId id, Price new_price, Qty new_qty) {
         const std::uint32_t idx = ids_.find(id);
         if (idx == kNil) return reject(id, RejectReason::UnknownOrderId), false;
-        if (new_qty <= 0) return reject(id, RejectReason::InvalidQuantity), false;
+        if (new_qty <= 0 || new_qty > kMaxQty) return reject(id, RejectReason::InvalidQuantity), false;
         if (!valid_price(new_price)) return reject(id, RejectReason::InvalidPrice), false;
 
         Order& o = pool_[idx];

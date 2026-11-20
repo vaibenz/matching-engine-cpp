@@ -10,6 +10,12 @@ using OrderId = std::uint64_t;
 using Price = std::int64_t;
 using Qty = std::int64_t;
 
+// Largest quantity one order may have. A level's total is a sum of up to
+// 2^32 - 1 orders (the pool's 32 bit index), so capping each at 2^31 - 1 keeps
+// every total, and every FOK liquidity sum, below 2^63: no signed overflow.
+// It is also what an ITCH feed can carry, since shares there are 32 bits.
+inline constexpr Qty kMaxQty = (Qty{1} << 31) - 1;
+
 enum class Side : std::uint8_t { Buy, Sell };
 
 enum class OrderType : std::uint8_t {

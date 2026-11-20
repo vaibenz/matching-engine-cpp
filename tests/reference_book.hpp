@@ -18,7 +18,7 @@ public:
     ReferenceBook(Price max_price, Listener l) : max_price_(max_price), l_(l) {}
 
     Qty submit(OrderId id, Side side, OrderType type, Price price, Qty qty) {
-        if (qty <= 0) return rej(id, RejectReason::InvalidQuantity);
+        if (qty <= 0 || qty > kMaxQty) return rej(id, RejectReason::InvalidQuantity);
         if (has_price(type) && (price < 1 || price > max_price_)) return rej(id, RejectReason::InvalidPrice);
         if (find(id)) return rej(id, RejectReason::DuplicateOrderId);
         if (type == OrderType::PostOnly) {
@@ -58,7 +58,7 @@ public:
     bool modify(OrderId id, Price np, Qty nq) {
         auto* o = find(id);
         if (!o) return rej(id, RejectReason::UnknownOrderId), false;
-        if (nq <= 0) return rej(id, RejectReason::InvalidQuantity), false;
+        if (nq <= 0 || nq > kMaxQty) return rej(id, RejectReason::InvalidQuantity), false;
         if (np < 1 || np > max_price_) return rej(id, RejectReason::InvalidPrice), false;
         if (np == o->price && nq <= o->qty) {
             o->qty = nq;

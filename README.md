@@ -122,7 +122,7 @@ OrderBook<Listener>
 Level:  head ⇄ order ⇄ order ⇄ tail    FIFO, 32 bit index links, total qty, count
 ```
 
-* **Price ladder.** Finding the level for a price is one array index, not a tree walk. Prices are integer ticks in `1..max_price`, so matching never touches floating point.
+* **Price ladder.** Finding the level for a price is one array index, not a tree walk. Prices are integer ticks in `1..max_price` and quantities integer lots in `1..2^31 - 1` (`kMaxQty`), so matching never touches floating point and no level total can overflow.
 * **Two level bitmap** for "next non empty level above/below p". When the touch empties, the new best is a couple of `ctz`/`clz` instructions per 4,096 ticks instead of a tick by tick scan, so a sparse book costs about the same as a dense one. It's also used for depth and FOK liquidity checks.
 * **Order pool.** Orders live in one slab and link to each other with 32 bit indices (half the size of pointers, and the slab can grow without invalidating anything). After warmup nothing on the hot path calls the allocator.
 * **Flat id map.** Open addressing with linear probing, Fibonacci hashing (order ids are often sequential) and backward shift deletion, so heavy cancel traffic never leaves tombstones behind.

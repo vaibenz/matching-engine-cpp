@@ -26,7 +26,7 @@ public:
     }
 
     Qty submit(OrderId id, Side side, OrderType type, Price price, Qty qty) {
-        if (qty <= 0) return rej(id, RejectReason::InvalidQuantity);
+        if (qty <= 0 || qty > kMaxQty) return rej(id, RejectReason::InvalidQuantity);
         if (has_price(type) && (price < 1 || price > max_price_)) return rej(id, RejectReason::InvalidPrice);
         if (ids_.count(id)) return rej(id, RejectReason::DuplicateOrderId);
         if (type == OrderType::PostOnly && would_cross(side, price)) return rej(id, RejectReason::PostOnlyWouldTake);
@@ -59,7 +59,7 @@ public:
     bool modify(OrderId id, Price np, Qty nq) {
         auto it = ids_.find(id);
         if (it == ids_.end()) return rej(id, RejectReason::UnknownOrderId), false;
-        if (nq <= 0) return rej(id, RejectReason::InvalidQuantity), false;
+        if (nq <= 0 || nq > kMaxQty) return rej(id, RejectReason::InvalidQuantity), false;
         if (np < 1 || np > max_price_) return rej(id, RejectReason::InvalidPrice), false;
         Ref r = it->second;
         if (np == r.price && nq <= r.node->qty) {
