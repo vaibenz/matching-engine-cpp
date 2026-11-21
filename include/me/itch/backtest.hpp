@@ -230,7 +230,9 @@ private:
         if (have == want) return;
         // A quote better than the touch means the level we joined emptied around us: step back to the real touch.
         q.pending = true;
-        q.at = ts + cfg_.latency_ns;
+        // Saturate: a latency near 2^64 ns (mm_backtest accepts up to 2^64 / 1000 us) wrapped the sum
+        // to a time in the past, so the quote went live at once instead of never.
+        q.at = cfg_.latency_ns > UINT64_MAX - ts ? UINT64_MAX : ts + cfg_.latency_ns;
         q.target = want;
         ++s.quote_updates;
     }

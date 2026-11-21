@@ -125,6 +125,26 @@ TEST(backtest_latency_means_early_trades_miss_us) {
     CHECK(!h.st().bid.live);
 }
 
+// A latency so long the change never reaches the exchange must mean exactly
+// that. ts + latency used to wrap past 2^64 to a time in the past, so the
+// quote went live on the next message, as if there were no latency at all.
+TEST(backtest_huge_latency_never_quotes) {
+    MmConfig c = config();
+    c.latency_ns = UINT64_MAX - 1000;
+    Harness h(c);
+    std::uint64_t t = kOpen;
+    h.w.add(t, 1, 1, 'S', 100, "TEST", 100'500);
+    h.w.add(t + 1, 1, 2, 'B', 100, "TEST", 100'000);  // two sided: we decide to quote
+    h.w.add(t + 100 * us, 1, 3, 'B', 100, "TEST", 100'000);
+    h.w.executed(t + 200 * us, 1, 2, 100, 1);
+    h.w.executed(t + 300 * us, 1, 3, 100, 2);  // the whole bid level trades
+    h.run();
+    CHECK(!h.st().bid.live);
+    CHECK(h.st().bid.pending);
+    CHECK_EQ(h.st().inventory, 0);
+    CHECK(h.st().fills.empty());
+}
+
 TEST(backtest_stops_adding_at_the_inventory_limit) {
     MmConfig c = config();
     c.max_inventory = 200;
