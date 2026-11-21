@@ -201,6 +201,30 @@ TEST(itch_builder_skips_an_add_with_a_bad_side) {
     CHECK_EQ(b.stats().unknown_ref, 1u);
 }
 
+// An add for zero shares used to create a level holding one order and no
+// shares. It still counted as the touch, so best_bid() reported a price
+// nobody was bidding at and the backtest would join it with nothing ahead.
+// A replace for zero shares is refused the same way and keeps the old order.
+TEST(itch_builder_skips_an_add_or_replace_for_zero_shares) {
+    Writer w;
+    BookBuilder<> b;
+    w.add(1, 1, 5, 'B', 100, "X", 10'000);
+    w.add(2, 1, 6, 'B', 0, "X", 10'100);
+    feed(b, w);
+    CHECK_EQ(b.stats().zero_shares, 1u);
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK_EQ(b.book(1).best_bid(), 10'000u);
+    CHECK(b.book(1).bids.find(10'100) == nullptr);
+
+    w.replace(3, 1, 5, 7, 0, 10'200);
+    feed(b, w);
+    CHECK_EQ(b.stats().zero_shares, 2u);
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK((b.queue(1, 'B', 10'000) == std::vector<std::uint64_t>{5}));
+    CHECK_EQ(b.book(1).bids.best().total, 100u);
+    CHECK(b.book(1).bids.find(10'200) == nullptr);
+}
+
 // A reference the index cannot hold is a corrupt feed and throws, but it must
 // throw before anything changes: a replay that catches the error (or a test
 // that inspects the book afterwards) must not find an order linked into a

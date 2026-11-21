@@ -219,6 +219,7 @@ struct BuilderStats {
     std::uint64_t overfill = 0;         // executed or cancelled more than was resting
     std::uint64_t duplicate_ref = 0;    // add or replace to a reference that is already live
     std::uint64_t bad_side = 0;         // add whose side byte is neither 'B' nor 'S'
+    std::uint64_t zero_shares = 0;      // add or replace for no shares
     std::uint64_t peak_orders = 0;
 };
 
@@ -344,6 +345,10 @@ private:
             ++stats_.bad_side;
             return;
         }
+        if (shares == 0) {  // would leave a level with an order but no shares, which still counts as the touch
+            ++stats_.zero_shares;
+            return;
+        }
         if (ids_.contains(ref)) {
             ++stats_.duplicate_ref;
             return;
@@ -431,6 +436,10 @@ private:
         check_ref(m.replace_new());  // a bad new reference must not cost the old order
         if (m.replace_new() != m.replace_old() && ids_.contains(m.replace_new())) {
             ++stats_.duplicate_ref;  // nor may one that is already live
+            return;
+        }
+        if (m.replace_shares() == 0) {  // nor one that would replace it with nothing
+            ++stats_.zero_shares;
             return;
         }
         const std::uint16_t locate = orders_[i].locate;
