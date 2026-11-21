@@ -218,6 +218,7 @@ struct BuilderStats {
     std::uint64_t unknown_ref = 0;      // E, C, X, D or U for an order we never saw
     std::uint64_t overfill = 0;         // executed or cancelled more than was resting
     std::uint64_t duplicate_ref = 0;    // add or replace to a reference that is already live
+    std::uint64_t bad_side = 0;         // add whose side byte is neither 'B' nor 'S'
     std::uint64_t peak_orders = 0;
 };
 
@@ -339,6 +340,10 @@ private:
     void add(std::uint64_t ts, std::uint16_t locate, std::uint64_t ref, char side, std::uint32_t price,
              std::uint32_t shares) {
         check_ref(ref);  // before anything is touched, so a throw leaves the book as it was
+        if (side != 'B' && side != 'S') {  // side('X') would quietly file it as an ask
+            ++stats_.bad_side;
+            return;
+        }
         if (ids_.contains(ref)) {
             ++stats_.duplicate_ref;
             return;

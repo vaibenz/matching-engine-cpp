@@ -179,6 +179,28 @@ TEST(itch_builder_counts_feed_anomalies) {
     CHECK_EQ(b.stats().duplicate_ref, 1u);
 }
 
+// ITCH sides are 'B' or 'S'. Anything else used to be read as an ask, so a
+// corrupt byte put a phantom order on the wrong side of the book, where it
+// could set the best ask and lock or cross it.
+TEST(itch_builder_skips_an_add_with_a_bad_side) {
+    Writer w;
+    BookBuilder<> b;
+    w.add(1, 1, 5, 'B', 100, "X", 10'000);
+    w.add(2, 1, 6, 'X', 100, "X", 9'900);
+    w.add(3, 1, 7, 'b', 100, "X", 10'100);
+    feed(b, w);
+    CHECK_EQ(b.stats().bad_side, 2u);
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK(b.book(1).asks.empty());
+    CHECK(b.order(6) == nullptr);
+    CHECK(b.order(7) == nullptr);
+
+    // the references were never live, so a later delete for one is an unknown reference
+    w.remove(4, 1, 6);
+    feed(b, w);
+    CHECK_EQ(b.stats().unknown_ref, 1u);
+}
+
 // A reference the index cannot hold is a corrupt feed and throws, but it must
 // throw before anything changes: a replay that catches the error (or a test
 // that inspects the book afterwards) must not find an order linked into a
