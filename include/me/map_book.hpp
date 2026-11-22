@@ -9,6 +9,7 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -22,6 +23,7 @@ class MapBook {
 public:
     explicit MapBook(Price max_price, Listener l = {}, std::uint32_t expected_orders = 1 << 16)
         : max_price_(max_price), l_(l) {
+        if (max_price < 1) throw std::invalid_argument("order book max_price must be at least 1");  // as OrderBook
         ids_.reserve(expected_orders);
     }
 

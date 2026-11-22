@@ -1,7 +1,10 @@
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "check.hpp"
+#include "me/map_book.hpp"
 #include "me/order_book.hpp"
 #include "recording_listener.hpp"
 
@@ -141,4 +144,30 @@ TEST(book_with_zero_expected_orders) {
     CHECK(b.cancel(1));
     CHECK_EQ(b.resting_orders(), 0u);
     CHECK(b.check_invariants());
+}
+
+// A max_price below 1 used to build a book that quietly rejected every order
+// as InvalidPrice (or, far enough below, failed inside std::vector), and one
+// near 2^63 overflowed max_price + 1, the empty ask sentinel. Both books now
+// refuse it up front; the smallest real ladder still works.
+TEST(book_refuses_a_max_price_it_cannot_hold) {
+    auto throws = [](auto make) {
+        try {
+            make();
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    for (me::Price p : {me::Price{0}, me::Price{-1}, me::Price{-200}}) {
+        CHECK(throws([p] { me::OrderBook<> b(p); }));
+        CHECK(throws([p] { me::MapBook<> b(p); }));
+    }
+    CHECK(throws([] { me::OrderBook<> b(std::numeric_limits<me::Price>::max()); }));
+
+    me::OrderBook<> one(1, {}, 4);
+    CHECK_EQ(one.submit(1, me::Side::Sell, me::OrderType::Limit, 1, 5), 0);
+    CHECK_EQ(one.submit(2, me::Side::Buy, me::OrderType::Limit, 1, 5), 5);
+    CHECK_EQ(one.resting_orders(), 0u);
+    CHECK(one.check_invariants());
 }

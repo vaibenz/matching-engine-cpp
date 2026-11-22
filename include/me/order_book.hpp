@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include "id_map.hpp"
@@ -31,17 +32,18 @@ struct LevelInfo {
 //
 // Each side is a flat array of levels indexed directly by price (a "price
 // ladder"), so finding the level for a price is one array access instead of
-// a tree walk. Valid prices are 1..max_price ticks.
+// a tree walk. Valid prices are 1..max_price ticks; any other max_price
+// throws std::invalid_argument.
 template <class Listener = NullListener>
 class OrderBook {
 public:
     explicit OrderBook(Price max_price, Listener listener = {}, std::uint32_t expected_orders = 1 << 16)
-        : max_price_(max_price),
+        : max_price_(checked_max_price(max_price)),
           listener_(listener),
-          bids_(static_cast<std::size_t>(max_price) + 1),
-          asks_(static_cast<std::size_t>(max_price) + 1),
-          bid_bits_(max_price),
-          ask_bits_(max_price),
+          bids_(static_cast<std::size_t>(max_price_) + 1),
+          asks_(static_cast<std::size_t>(max_price_) + 1),
+          bid_bits_(max_price_),
+          ask_bits_(max_price_),
           pool_(expected_orders),
           ids_(expected_orders) {}
 
@@ -184,6 +186,16 @@ public:
     }
 
 private:
+    // A max_price below 1 used to build a book that silently rejected every
+    // price (or, far enough below, failed inside std::vector with a size
+    // nobody asked for), and one near 2^63 overflowed max_price + 1, the
+    // empty ask sentinel. The ladder must also fit in a vector.
+    static Price checked_max_price(Price p) {
+        if (p < 1 || static_cast<std::uint64_t>(p) >= std::vector<Level>().max_size())
+            throw std::invalid_argument("order book max_price must be at least 1 and fit the price ladder");
+        return p;
+    }
+
     bool valid_price(Price p) const { return p >= 1 && p <= max_price_; }
 
     static Price market_limit(Side s) {
