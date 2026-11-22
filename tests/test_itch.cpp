@@ -225,6 +225,32 @@ TEST(itch_builder_skips_an_add_or_replace_for_zero_shares) {
     CHECK(b.book(1).bids.find(10'200) == nullptr);
 }
 
+// Price 0 is what best_bid() and best_ask() return for an empty side. An ask
+// added at 0 used to become the best ask, so best_ask() said "no asks" while
+// the side held an order, and a bid at 0 behind real bids was a level nobody
+// could ever trade. A replace to price 0 is refused the same way and keeps the
+// old order.
+TEST(itch_builder_skips_an_add_or_replace_at_price_zero) {
+    Writer w;
+    BookBuilder<> b;
+    w.add(1, 1, 5, 'S', 100, "X", 10'100);
+    w.add(2, 1, 6, 'S', 100, "X", 0);
+    w.add(3, 1, 7, 'B', 100, "X", 0);
+    feed(b, w);
+    CHECK_EQ(b.stats().zero_price, 2u);
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK_EQ(b.book(1).best_ask(), 10'100u);
+    CHECK_EQ(b.book(1).asks.size(), 1u);
+    CHECK(b.book(1).bids.empty());
+
+    w.replace(4, 1, 5, 8, 100, 0);
+    feed(b, w);
+    CHECK_EQ(b.stats().zero_price, 3u);
+    CHECK_EQ(b.live_orders(), 1u);
+    CHECK((b.queue(1, 'S', 10'100) == std::vector<std::uint64_t>{5}));
+    CHECK(b.order(8) == nullptr);
+}
+
 // A reference the index cannot hold is a corrupt feed and throws, but it must
 // throw before anything changes: a replay that catches the error (or a test
 // that inspects the book afterwards) must not find an order linked into a

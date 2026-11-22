@@ -220,6 +220,7 @@ struct BuilderStats {
     std::uint64_t duplicate_ref = 0;    // add or replace to a reference that is already live
     std::uint64_t bad_side = 0;         // add whose side byte is neither 'B' nor 'S'
     std::uint64_t zero_shares = 0;      // add or replace for no shares
+    std::uint64_t zero_price = 0;       // add or replace at a price of 0
     std::uint64_t peak_orders = 0;
 };
 
@@ -349,6 +350,10 @@ private:
             ++stats_.zero_shares;
             return;
         }
+        if (price == 0) {  // 0 is what best_bid() and best_ask() return for an empty side
+            ++stats_.zero_price;
+            return;
+        }
         if (ids_.contains(ref)) {
             ++stats_.duplicate_ref;
             return;
@@ -440,6 +445,10 @@ private:
         }
         if (m.replace_shares() == 0) {  // nor one that would replace it with nothing
             ++stats_.zero_shares;
+            return;
+        }
+        if (m.replace_price() == 0) {  // nor one that would move it to a price that reads as an empty side
+            ++stats_.zero_price;
             return;
         }
         const std::uint16_t locate = orders_[i].locate;
