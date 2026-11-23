@@ -90,6 +90,11 @@ int main(int argc, char** argv) try {
         }
     }
     if (symbols.empty()) return usage_error("--symbols is required");
+    // A side only quotes while one more lot keeps |inventory| within the limit, so a limit below one
+    // lot never quotes at all: the whole day replayed for a report of zero fills.
+    if (cfg.max_inventory < static_cast<std::int64_t>(cfg.lot))
+        return usage_error("--max-inventory " + std::to_string(cfg.max_inventory) + " is below one lot of " +
+                           std::to_string(cfg.lot) + " shares, so no quote could ever be posted");
 
     BookBuilder<MarketMaker> builder(MarketMaker(cfg, symbols), 1 << 22);
     std::uint64_t bytes = 0;
