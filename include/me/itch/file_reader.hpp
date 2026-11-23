@@ -39,7 +39,10 @@ inline GzFile open_gz(const std::string& path) {
 
 // After the last read: zlib reports Z_BUF_ERROR when the input ended in the
 // middle of a gzip stream, and any carried over bytes are a cut off message.
-inline void check_complete(gzFile f, const std::string& path, std::size_t leftover) {
+// A file with no bytes at all (a download that never started, or a gzip of
+// nothing) is not a quiet day either: a real day file always has messages.
+inline void check_complete(gzFile f, const std::string& path, std::size_t leftover, std::uint64_t read) {
+    if (read == 0) throw std::runtime_error(path + ": the file is empty, there is no day to replay");
     int err = Z_OK;
     gzerror(f, &err);
     if (err == Z_BUF_ERROR) throw std::runtime_error(path + ": gzip stream ends early, the file is truncated");
@@ -59,12 +62,13 @@ inline std::uint64_t stream_batches(const std::string& path, F&& on_batch, std::
     std::vector<Message> batch;
     batch.reserve(1 << 20);
     std::size_t have = 0;
-    std::uint64_t messages = 0;
+    std::uint64_t messages = 0, read = 0;
     for (;;) {
         int n = gzread(f, buf.data() + have, static_cast<unsigned>(buf.size() - have));
         if (n < 0) throw std::runtime_error("read error in " + path);
         if (n == 0) break;
         *bytes += static_cast<std::uint64_t>(n);
+        read += static_cast<std::uint64_t>(n);
         have += static_cast<std::size_t>(n);
         batch.clear();
         std::size_t used = Framer::each(buf.data(), have, [&](const Message& m) { batch.push_back(m); });
@@ -73,7 +77,7 @@ inline std::uint64_t stream_batches(const std::string& path, F&& on_batch, std::
         std::memmove(buf.data(), buf.data() + used, have - used);
         have -= used;
     }
-    detail::check_complete(f, path, have);
+    detail::check_complete(f, path, have, read);
     return messages;
 }
 
@@ -83,12 +87,13 @@ inline std::uint64_t stream_file(const std::string& path, F&& on_message, std::u
     gzFile f = file.get();
     std::vector<std::uint8_t> buf(16 << 20);
     std::size_t have = 0;
-    std::uint64_t messages = 0;
+    std::uint64_t messages = 0, read = 0;
     for (;;) {
         int n = gzread(f, buf.data() + have, static_cast<unsigned>(buf.size() - have));
         if (n < 0) throw std::runtime_error("read error in " + path);
         if (n == 0) break;
         *bytes += static_cast<std::uint64_t>(n);
+        read += static_cast<std::uint64_t>(n);
         have += static_cast<std::size_t>(n);
         std::size_t used = Framer::each(buf.data(), have, [&](const Message& m) {
             ++messages;
@@ -97,7 +102,7 @@ inline std::uint64_t stream_file(const std::string& path, F&& on_message, std::u
         std::memmove(buf.data(), buf.data() + used, have - used);  // keep a partial message for the next read
         have -= used;
     }
-    detail::check_complete(f, path, have);
+    detail::check_complete(f, path, have, read);
     return messages;
 }
 

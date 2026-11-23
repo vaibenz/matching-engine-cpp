@@ -20,13 +20,13 @@ std::string temp_path(const char* name) { return std::string(P_tmpdir) + "/me_te
 
 void write_raw(const std::string& path, const std::vector<std::uint8_t>& bytes) {
     std::FILE* f = std::fopen(path.c_str(), "wb");
-    std::fwrite(bytes.data(), 1, bytes.size(), f);
+    if (!bytes.empty()) std::fwrite(bytes.data(), 1, bytes.size(), f);  // data() may be null when empty
     std::fclose(f);
 }
 
 std::vector<std::uint8_t> gzip(const std::vector<std::uint8_t>& bytes, const std::string& path) {
     gzFile g = gzopen(path.c_str(), "wb");
-    gzwrite(g, bytes.data(), static_cast<unsigned>(bytes.size()));
+    if (!bytes.empty()) gzwrite(g, bytes.data(), static_cast<unsigned>(bytes.size()));
     gzclose(g);
     std::vector<std::uint8_t> out;
     std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -105,4 +105,15 @@ TEST(file_reader_rejects_a_partial_last_message) {
     write_raw(raw, bytes);
     CHECK(read_both_ways(raw).threw);
     std::remove(raw.c_str());
+}
+
+// A zero byte file (a download that never started) used to replay as a day with no
+// messages: itch_replay reported 0 messages at "inf ns per message" and exited 0.
+TEST(file_reader_rejects_an_empty_file) {
+    std::string raw = temp_path("empty.itch"), gz = temp_path("empty.itch.gz");
+    write_raw(raw, {});
+    gzip({}, gz);  // a well formed gzip stream of nothing
+    for (const std::string& path : {raw, gz}) CHECK(read_both_ways(path).threw);
+    std::remove(raw.c_str());
+    std::remove(gz.c_str());
 }

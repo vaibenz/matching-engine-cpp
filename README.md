@@ -30,7 +30,7 @@ BookBuilder
 * **Paged direct index instead of a hash map.** Nasdaq hands out order references in increasing order through the day, so a reference maps straight to a slot through a page table. There's no hashing and no probing, and orders that arrived close together sit close together in memory. A page is freed when its last order goes.
 * **Software prefetching.** Most messages touch an order that is not in cache, since millions are live. Messages arrive in large chunks, so while message *i* is applied, the index slot for message *i + 16* and the order for message *i + 8* are already being loaded.
 * **Best price at the back.** Almost all activity is at or near the touch, so a level is found by scanning a few entries from the back of a sorted vector, and adding or removing a level there moves only a handful of elements.
-* **Streaming.** Files are read in 16 MB chunks, gzip is decompressed on the fly with zlib, and a message split across two reads is carried over. The day never has to fit in memory. A truncated file (a gzip stream that ends early, or a cut off last message) is an error, never a silently shorter day: both tools print what went wrong and exit with status 1.
+* **Streaming.** Files are read in 16 MB chunks, gzip is decompressed on the fly with zlib, and a message split across two reads is carried over. The day never has to fit in memory. A truncated or empty file (a gzip stream that ends early, a cut off last message, or zero bytes) is an error, never a silently shorter day: both tools print what went wrong and exit with status 1.
 
 Results on a 30 million message synthetic session (1,000 stocks, about 3 million live orders at the end; `itch_replay --synthetic`), 2 vCPU cloud VM:
 
@@ -150,7 +150,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ./build/tests
 ```
 
-37 cases, no external test framework (`tests/check.hpp` is 70 lines). The ITCH and backtest tests are described above, and `tests/test_file_reader.cpp` reads real raw and gzip files across the 16 MB chunk boundary and checks that truncated ones are rejected.
+37 cases, no external test framework (`tests/check.hpp` is 70 lines). The ITCH and backtest tests are described above, and `tests/test_file_reader.cpp` reads real raw and gzip files across the 16 MB chunk boundary and checks that truncated and empty ones are rejected.
 
 * **Scenario tests** cover price time priority, partial fills, sweeps, every order type, cancels from the middle of a queue, the modify priority rules and input validation.
 * **Differential test.** 300 random streams of 2,000 commands go through both the real book and `ReferenceBook`, which keeps one flat vector and linear scans everything. Events must match after every command, and depth must match every 16 commands. On top of that, `OrderBook::check_invariants()` audits the ladder book's internals after every command: queue links, level totals and counts, the occupancy bitmaps, the cached best bid and ask, the id index and the pool's live count, plus a book that is never crossed. A failure then points at the exact command that broke the bookkeeping instead of the next depth sample. The streams mix every order type with bad prices, bad quantities, duplicate ids, and cancels and modifies on live, filled and unknown orders.
