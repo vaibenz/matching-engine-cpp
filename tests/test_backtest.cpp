@@ -110,6 +110,26 @@ TEST(backtest_trade_through_fills_completely) {
     CHECK_EQ(h.st().inventory, 100);
 }
 
+// An execution for zero shares is a feed anomaly, not a trade. Reported at a
+// price worse than our bid it used to read as a sweep through our level and
+// fill the whole quote, though nothing traded at all.
+TEST(backtest_zero_share_execution_is_not_a_trade_through) {
+    Harness h(config());
+    std::uint64_t t = kOpen;
+    h.w.add(t, 1, 1, 'B', 500, "TEST", 100'000);
+    h.w.add(t + 1, 1, 2, 'B', 300, "TEST", 99'900);
+    h.w.add(t + 2, 1, 3, 'S', 100, "TEST", 100'500);
+    h.run();
+    h.w.executed(t + 100 * us, 1, 2, 0, 1);                       // below our bid, for nothing
+    h.w.executed_with_price(t + 101 * us, 1, 2, 0, 2, 99'900);    // the same with a price
+    h.run();
+    CHECK_EQ(h.st().inventory, 0);
+    CHECK(h.st().fills.empty());
+    CHECK(h.st().bid.live);
+    CHECK_EQ(h.b.stats().zero_shares, 2u);
+    CHECK_EQ(h.b.order(2)->shares, 300u);
+}
+
 TEST(backtest_latency_means_early_trades_miss_us) {
     MmConfig c = config();
     c.latency_ns = 500 * us;

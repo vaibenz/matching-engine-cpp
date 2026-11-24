@@ -140,7 +140,7 @@ int main(int argc, char** argv) try {
                 static_cast<unsigned long long>(n), bytes / 1e6, secs, n / secs / 1e6, secs * 1e9 / static_cast<double>(n));
     std::printf("peak live orders %llu, live at end %zu\n", static_cast<unsigned long long>(st.peak_orders),
                 builder.live_orders());
-    std::printf("feed anomalies: %llu unknown references, %llu overfills, %llu duplicate adds, %llu adds with a bad side, %llu adds for zero shares, %llu adds at a price of 0\n",
+    std::printf("feed anomalies: %llu unknown references, %llu overfills, %llu duplicate adds, %llu adds with a bad side, %llu adds or executions for zero shares, %llu adds at a price of 0\n",
                 static_cast<unsigned long long>(st.unknown_ref), static_cast<unsigned long long>(st.overfill),
                 static_cast<unsigned long long>(st.duplicate_ref), static_cast<unsigned long long>(st.bad_side),
                 static_cast<unsigned long long>(st.zero_shares), static_cast<unsigned long long>(st.zero_price));

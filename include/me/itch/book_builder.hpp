@@ -219,7 +219,7 @@ struct BuilderStats {
     std::uint64_t overfill = 0;         // executed or cancelled more than was resting
     std::uint64_t duplicate_ref = 0;    // add or replace to a reference that is already live
     std::uint64_t bad_side = 0;         // add whose side byte is neither 'B' nor 'S'
-    std::uint64_t zero_shares = 0;      // add or replace for no shares
+    std::uint64_t zero_shares = 0;      // add, replace or execution for no shares
     std::uint64_t zero_price = 0;       // add or replace at a price of 0
     std::uint64_t peak_orders = 0;
 };
@@ -401,6 +401,10 @@ private:
         const std::uint32_t i = ids_.find(ref);
         if (i == kNone) {
             ++stats_.unknown_ref;
+            return;
+        }
+        if (shares == 0) {  // nothing traded: an observer must not read it as a trade, let alone a sweep
+            ++stats_.zero_shares;
             return;
         }
         StockBook& b = book(orders_[i].locate);
