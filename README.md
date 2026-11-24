@@ -74,7 +74,7 @@ The busiest books that day:
 
 ### How it's tested
 
-`tests/test_itch.cpp` checks the fields of every message type I write, the framer at every split point, and hand written scenarios for partial cancels, executions, replaces and deletes. It also replays a synthetic day through `on_batch`, the prefetching path the tools use, in batches of random size, and checks it leaves exactly the books, queues and counters of applying one message at a time. The main test is differential. `SyntheticSession` runs one matching engine per stock and translates its events into ITCH the way an exchange does:
+`tests/test_itch.cpp` checks the fields of every message type I write, the framer at every split point (and that it refuses a message too short to hold the 11 byte common header), and hand written scenarios for partial cancels, executions, replaces and deletes. It also replays a synthetic day through `on_batch`, the prefetching path the tools use, in batches of random size, and checks it leaves exactly the books, queues and counters of applying one message at a time. The main test is differential. `SyntheticSession` runs one matching engine per stock and translates its events into ITCH the way an exchange does:
 
 | engine event | ITCH |
 |---|---|

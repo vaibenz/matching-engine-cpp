@@ -131,6 +131,39 @@ TEST(itch_rejects_wrong_length_for_type) {
     CHECK(threw);
 }
 
+TEST(itch_rejects_a_message_shorter_than_the_common_header) {
+    // Every ITCH 5.0 message starts with type, locate, tracking number and timestamp: 11 bytes. A type the
+    // table does not know is passed through for forward compatibility, but not one too short to hold that
+    // header, since every consumer may read its timestamp (itch_replay --parse-only does, for each message).
+    for (std::uint8_t len : {1, 5, 10}) {
+        std::vector<std::uint8_t> bad = {0, len, 'Z'};
+        bad.resize(2 + len, 0);
+        bool threw = false;
+        try {
+            Framer::each(bad.data(), bad.size(), [](const Message&) {});
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        CHECK(threw);
+    }
+    std::vector<std::uint8_t> high = {0, 3, 0xC8, 0, 1};  // a type byte past ASCII, too short as well
+    bool threw = false;
+    try {
+        Framer::each(high.data(), high.size(), [](const Message&) {});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    // An unknown type with at least the header is still passed on, timestamp intact.
+    std::vector<std::uint8_t> future = {0, 11, 'Z', 0, 1, 0, 2, 0, 0, 0, 0, 0, 42};
+    int n = 0;
+    std::uint64_t ts = 0;
+    CHECK_EQ(Framer::each(future.data(), future.size(), [&](const Message& m) { ++n; ts = m.timestamp(); }),
+             future.size());
+    CHECK_EQ(n, 1);
+    CHECK_EQ(ts, 42u);
+}
+
 TEST(itch_builder_applies_partial_cancel_execute_replace_delete) {
     Writer w;
     BookBuilder<> b;

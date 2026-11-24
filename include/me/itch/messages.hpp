@@ -56,6 +56,9 @@ inline void put64(std::uint8_t* p, std::uint64_t v) {
     for (int i = 7; i >= 0; --i, v >>= 8) p[i] = static_cast<std::uint8_t>(v);
 }
 
+// Type, stock locate, tracking number and timestamp: the start of every message.
+constexpr std::uint16_t kHeaderLength = 11;
+
 // Message lengths from the ITCH 5.0 specification. 0 means unknown type.
 constexpr std::array<std::uint16_t, 128> kLength = [] {
     std::array<std::uint16_t, 128> l{};
@@ -133,7 +136,8 @@ struct Message {
 class Framer {
 public:
     // Calls f(Message) for each complete message. Returns bytes consumed, or
-    // throws on a message whose length does not match its type.
+    // throws on a message whose length does not match its type or that is
+    // shorter than the common header.
     template <class F>
     static std::size_t each(const std::uint8_t* data, std::size_t size, F&& f) {
         std::size_t pos = 0;
@@ -141,7 +145,11 @@ public:
             const std::uint16_t len = be16(data + pos);
             if (pos + 2 + len > size) break;  // partial message: wait for more bytes
             const std::uint8_t* msg = data + pos + 2;
-            if (len == 0) throw std::runtime_error("zero length ITCH message");
+            // Every message carries the common header (type, locate, tracking number, timestamp), so even a
+            // type we do not know can be handed on: anything shorter would have its timestamp read past its end.
+            if (len < kHeaderLength)
+                throw std::runtime_error(std::string("ITCH message of ") + std::to_string(len) +
+                                         " bytes is shorter than the 11 byte header");
             const std::uint8_t t = msg[0];
             if (t < 128 && kLength[t] != 0 && kLength[t] != len)
                 throw std::runtime_error(std::string("bad length ") + std::to_string(len) + " for ITCH type " +
