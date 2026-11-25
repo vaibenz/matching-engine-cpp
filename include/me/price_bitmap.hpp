@@ -53,6 +53,9 @@ public:
     // highest set price <= p, or kNone
     std::int64_t prev_at_or_before(std::int64_t p) const {
         if (p < 0) return kNone;
+        // past the last word nothing more is set: search from the top bit instead of indexing beyond it
+        const auto top = static_cast<std::int64_t>(words_.size() * 64 - 1);
+        if (p > top) p = top;
         auto w = static_cast<std::size_t>(p >> 6);
         std::uint64_t low = (p & 63) == 63 ? ~0ULL : (1ULL << ((p & 63) + 1)) - 1;
         if (std::uint64_t bits = words_[w] & low) return static_cast<std::int64_t>((w << 6) + 63 - std::countl_zero(bits));

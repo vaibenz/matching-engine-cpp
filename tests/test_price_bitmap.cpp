@@ -1,3 +1,4 @@
+#include <limits>
 #include <random>
 #include <set>
 
@@ -34,4 +35,23 @@ TEST(price_bitmap_matches_std_set) {
             CHECK_EQ(bm.prev_at_or_before(p), dn == ref.begin() ? PriceBitmap::kNone : *std::prev(dn));
         }
     }
+}
+
+// next_at_or_after already answered kNone for a price past the last word, but
+// prev_at_or_before indexed words_ with it directly: asked about any price
+// above the bitmap's range it read past the end of the vector (a heap overflow
+// under ASan, garbage or a crash otherwise) instead of answering with the
+// highest set price, which is what "highest set price <= p" means there.
+TEST(price_bitmap_searches_from_beyond_the_top) {
+    PriceBitmap bm(100);
+    CHECK_EQ(bm.prev_at_or_before(1'000), PriceBitmap::kNone);
+    bm.set(3);
+    bm.set(100);
+    for (std::int64_t p : {std::int64_t{101}, std::int64_t{128}, std::int64_t{1'000}, std::int64_t{1} << 40,
+                           std::numeric_limits<std::int64_t>::max()}) {
+        CHECK_EQ(bm.prev_at_or_before(p), 100);
+        CHECK_EQ(bm.next_at_or_after(p), PriceBitmap::kNone);
+    }
+    bm.clear(100);
+    CHECK_EQ(bm.prev_at_or_before(std::int64_t{1} << 40), 3);
 }
