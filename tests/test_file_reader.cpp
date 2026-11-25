@@ -117,3 +117,36 @@ TEST(file_reader_rejects_an_empty_file) {
     std::remove(raw.c_str());
     std::remove(gz.c_str());
 }
+
+// A message whose length does not fit its type is a corrupt file and throws, but
+// both readers must first hand on every message before it, as they do before a
+// truncation. The batched reader used to frame a whole 16 MB chunk into a batch
+// and lose it when the framer threw, so on_batch never saw the good messages
+// that preceded the bad one while stream_file had delivered them all.
+TEST(file_reader_delivers_the_messages_before_a_corrupt_one) {
+    const std::uint64_t n = 1'000;
+    auto bytes = session(n);
+    for (int b : {0, 20, int{'E'}, 0, 1}) bytes.push_back(static_cast<std::uint8_t>(b));  // an E is 31 bytes, not 20
+    bytes.resize(bytes.size() + 17, 0);
+    for (std::uint8_t b : session(5)) bytes.push_back(b);         // more good messages after it
+    std::string raw = temp_path("corrupt.itch");
+    write_raw(raw, bytes);
+
+    std::uint64_t one = 0, batched = 0, bytes_read = 0;
+    bool threw = false, batch_threw = false;
+    try {
+        stream_file(raw, [&](const Message&) { ++one; }, &bytes_read);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    try {
+        stream_batches(raw, [&](const Message*, std::size_t k) { batched += k; }, &bytes_read);
+    } catch (const std::runtime_error&) {
+        batch_threw = true;
+    }
+    CHECK(threw);
+    CHECK(batch_threw);
+    CHECK_EQ(one, n + 1);
+    CHECK_EQ(batched, n + 1);
+    std::remove(raw.c_str());
+}

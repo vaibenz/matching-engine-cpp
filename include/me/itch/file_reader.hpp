@@ -71,7 +71,13 @@ inline std::uint64_t stream_batches(const std::string& path, F&& on_batch, std::
         read += static_cast<std::uint64_t>(n);
         have += static_cast<std::size_t>(n);
         batch.clear();
-        std::size_t used = Framer::each(buf.data(), have, [&](const Message& m) { batch.push_back(m); });
+        std::size_t used = 0;
+        try {
+            used = Framer::each(buf.data(), have, [&](const Message& m) { batch.push_back(m); });
+        } catch (...) {
+            on_batch(batch.data(), batch.size());  // the messages before a corrupt one, as stream_file delivers them
+            throw;
+        }
         messages += batch.size();
         on_batch(batch.data(), batch.size());
         std::memmove(buf.data(), buf.data() + used, have - used);
