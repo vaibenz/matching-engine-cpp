@@ -1,3 +1,4 @@
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -6,6 +7,7 @@
 #include "check.hpp"
 #include "me/map_book.hpp"
 #include "me/order_book.hpp"
+#include "me/wire.hpp"
 #include "recording_listener.hpp"
 
 using namespace me;
@@ -170,4 +172,37 @@ TEST(book_refuses_a_max_price_it_cannot_hold) {
     CHECK_EQ(one.submit(2, me::Side::Buy, me::OrderType::Limit, 1, 5), 5);
     CHECK_EQ(one.resting_orders(), 0u);
     CHECK(one.check_invariants());
+}
+
+// A wire command is raw bytes copied off the ring, so its enum fields can hold
+// any byte. A side byte of 2 used to be applied as a sell (every check is
+// "== Buy ? ... : ..."), leaving an order whose side is neither on the ask
+// ladder, and an order type byte past PostOnly ran as an IOC. Such commands
+// are refused before they reach the book; good ones still apply.
+TEST(wire_apply_refuses_out_of_range_enum_bytes) {
+    Fixture f;
+    auto cmd = [](std::uint8_t msg, std::uint8_t side, std::uint8_t type, OrderId id) {
+        wire::Command c{};
+        std::uint8_t head[3] = {msg, side, type};
+        std::memcpy(&c, head, sizeof head);  // as if decoded from a corrupt or foreign buffer
+        c.qty = 5;
+        c.id = id;
+        c.price = 100;
+        return c;
+    };
+    CHECK(!wire::apply(f.book, cmd(1, 2, 0, 1)));     // side 2
+    CHECK(!wire::apply(f.book, cmd(1, 255, 0, 2)));   // side 255
+    CHECK(!wire::apply(f.book, cmd(1, 1, 5, 3)));     // type past PostOnly
+    CHECK(!wire::apply(f.book, cmd(0, 0, 0, 4)));     // no such message
+    CHECK(!wire::apply(f.book, cmd(4, 0, 0, 5)));
+    CHECK(f.log.empty());
+    CHECK_EQ(f.book.resting_orders(), 0u);
+
+    CHECK(wire::apply(f.book, cmd(1, 1, 0, 6)));      // a good sell limit
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), 5);
+    CHECK(wire::apply(f.book, cmd(3, 7, 9, 6)));      // a modify or cancel only needs a valid message byte
+    CHECK(f.log.back() == "modify 6 100x5");
+    CHECK(wire::apply(f.book, cmd(2, 0, 0, 6)));      // cancel
+    CHECK_EQ(f.book.resting_orders(), 0u);
+    CHECK(f.book.check_invariants());
 }

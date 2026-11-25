@@ -22,13 +22,22 @@ struct Command {
 };
 static_assert(sizeof(Command) == 32);
 
+// Applies a command to the book. Returns false, leaving the book untouched,
+// for a command whose message, side or order type byte is out of range: the
+// book tests sides as "== Buy or else Sell" and types by what they allow, so
+// a stray byte would otherwise be applied as some other, valid command.
 template <class Book>
-inline void apply(Book& book, const Command& c) {
+inline bool apply(Book& book, const Command& c) {
     switch (c.msg) {
-        case Msg::Submit: book.submit(c.id, c.side, c.type, c.price, c.qty); break;
-        case Msg::Cancel: book.cancel(c.id); break;
-        case Msg::Modify: book.modify(c.id, c.price, c.qty); break;
+        case Msg::Submit:
+            if (c.side != Side::Buy && c.side != Side::Sell) return false;
+            if (static_cast<std::uint8_t>(c.type) > static_cast<std::uint8_t>(OrderType::PostOnly)) return false;
+            book.submit(c.id, c.side, c.type, c.price, c.qty);
+            return true;
+        case Msg::Cancel: book.cancel(c.id); return true;
+        case Msg::Modify: book.modify(c.id, c.price, c.qty); return true;
     }
+    return false;
 }
 
 }  // namespace me::wire
