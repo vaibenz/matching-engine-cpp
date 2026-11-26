@@ -2,6 +2,7 @@
 // reference book. After every command both must have produced exactly the
 // same events, and every 16 commands the same depth on both sides. The ladder
 // book also has its internal bookkeeping audited after every single command.
+#include <algorithm>
 #include <cstdio>
 #include <random>
 #include <string>
@@ -35,19 +36,26 @@ bool same_depth(const Book& book, const test::ReferenceBook<test::RecordingListe
 }
 
 // Returns the index of the first diverging command, or -1.
+// With edges set, the mid wanders over the whole ladder and good prices are clamped into
+// 1..kMaxPrice, so orders rest on and trade at the first and last tick: the empty ask sentinel
+// (max_price + 1), a bitmap search that starts past the last level or below the first, and a
+// valid_price that is off by one at either end. The default stream keeps the mid in 20..180 and
+// never prices a good order at 1 or kMaxPrice, so none of that is reached there.
 template <template <class> class BookT>
-long run_stream(std::uint64_t seed, int commands) {
+long run_stream(std::uint64_t seed, int commands, bool edges = false) {
     std::mt19937_64 rng(seed);
     auto pick = [&](int n) { return static_cast<int>(rng() % static_cast<std::uint64_t>(n)); };
     Log a, b;
     BookT<test::RecordingListener> book(kMaxPrice, test::RecordingListener{&a});
     test::ReferenceBook<test::RecordingListener> ref(kMaxPrice, test::RecordingListener{&b});
     OrderId next_id = 1;
-    Price mid = 100;
+    Price mid = edges ? (seed % 2 ? 3 : kMaxPrice - 3) : 100;
+    const Price mid_lo = edges ? 1 : 20, mid_hi = edges ? kMaxPrice : kMaxPrice - 20;
+    auto good = [&](Price p) { return edges ? std::clamp<Price>(p, 1, kMaxPrice) : p; };
     std::vector<std::pair<OrderId, Price>> recent;  // last known price per submitted id
 
     for (int i = 0; i < commands; ++i) {
-        if (pick(20) == 0) mid = std::clamp<Price>(mid + pick(5) - 2, 20, kMaxPrice - 20);
+        if (pick(edges ? 4 : 20) == 0) mid = std::clamp<Price>(mid + pick(5) - 2, mid_lo, mid_hi);
         int roll = pick(100);
         // mostly recent ids, so cancels and modifies usually hit live orders,
         // plus some uniform picks that hit filled and never seen ids
@@ -61,7 +69,7 @@ long run_stream(std::uint64_t seed, int commands) {
         if (roll < 55) {
             Side s = pick(2) ? Side::Buy : Side::Sell;
             auto t = static_cast<OrderType>(pick(5));
-            Price p = mid + pick(21) - 10;
+            Price p = good(mid + pick(21) - 10);
             if (pick(50) == 0) p = pick(3) == 0 ? 0 : kMaxPrice + 1 + pick(5);  // bad prices
             Qty q = pick(40) == 0 ? -pick(3) : 1 + pick(30);
             if (pick(100) == 0) q = kMaxQty + pick(2);  // at and just over the cap
@@ -73,7 +81,7 @@ long run_stream(std::uint64_t seed, int commands) {
             book.cancel(target);
             ref.cancel(target);
         } else {
-            Price p = pick(30) == 0 ? -1 : mid + pick(21) - 10;
+            Price p = pick(30) == 0 ? -1 : good(mid + pick(21) - 10);
             if (target_px > 0 && pick(5) < 2) p = target_px;  // same price: the keep priority path
             Qty q = pick(30) == 0 ? 0 : 1 + pick(30);
             if (pick(100) == 0) q = kMaxQty + pick(2);
@@ -97,6 +105,15 @@ long run_stream(std::uint64_t seed, int commands) {
 TEST(differential_ladder_book_matches_reference) {
     for (std::uint64_t seed = 1; seed <= 300; ++seed) {
         long bad = run_stream<OrderBook>(seed, 2000);
+        if (bad >= 0) std::printf("  seed %llu diverged at command %ld\n", (unsigned long long)seed, bad);
+        CHECK(bad < 0);
+        if (bad >= 0) break;
+    }
+}
+
+TEST(differential_ladder_book_matches_reference_at_the_ends_of_the_ladder) {
+    for (std::uint64_t seed = 1; seed <= 200; ++seed) {
+        long bad = run_stream<OrderBook>(seed, 2000, true);
         if (bad >= 0) std::printf("  seed %llu diverged at command %ld\n", (unsigned long long)seed, bad);
         CHECK(bad < 0);
         if (bad >= 0) break;
