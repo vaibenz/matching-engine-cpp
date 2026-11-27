@@ -19,7 +19,7 @@ enable_testing()
 
 find_package(Threads REQUIRED)
 
-add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp tests/test_differential.cpp tests/test_id_map.cpp tests/test_price_bitmap.cpp tests/test_spsc_ring.cpp tests/test_itch.cpp tests/test_backtest.cpp tests/test_file_reader.cpp)
+add_executable(tests tests/test_main.cpp tests/test_book.cpp tests/test_order_types.cpp tests/test_differential.cpp tests/test_id_map.cpp tests/test_order_pool.cpp tests/test_price_bitmap.cpp tests/test_spsc_ring.cpp tests/test_itch.cpp tests/test_backtest.cpp tests/test_file_reader.cpp)
 find_package(ZLIB REQUIRED)
 target_link_libraries(tests PRIVATE me Threads::Threads ZLIB::ZLIB)
 if(ME_SANITIZE)

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 #include "types.hpp"
@@ -47,14 +49,27 @@ public:
     std::uint32_t live() const { return live_; }
     std::size_t capacity() const { return slots_.size(); }
 
+    // Indices are 32 bit and kNil marks "no order", so slots 0..kNil-1 are all
+    // the pool can address. Doubling past 2^31 slots used to wrap the 32 bit
+    // size to 0 and leave the free list pointing past the end of the slab.
+    static constexpr std::size_t kMaxSlots = kNil;
+
+    // The size the pool grows to from `size` when asked for `extra` more
+    // slots: capped at kMaxSlots, and a std::length_error once it is there.
+    static std::size_t grown_size(std::size_t size, std::uint32_t extra) {
+        if (extra == 0) extra = 1024;
+        if (size >= kMaxSlots) throw std::length_error("order pool is full: no 32 bit index left");
+        return std::min<std::size_t>(size + extra, kMaxSlots);
+    }
+
 private:
     void grow(std::uint32_t extra) {
-        if (extra == 0) extra = 1024;
-        auto old = static_cast<std::uint32_t>(slots_.size());
-        slots_.resize(old + extra);
+        const std::size_t old = slots_.size(), size = grown_size(old, extra);
+        slots_.resize(size);
         // thread the new slots onto the free list in index order
-        for (std::uint32_t i = old; i < old + extra; ++i) slots_[i].next = i + 1 < old + extra ? i + 1 : free_head_;
-        free_head_ = old;
+        for (std::size_t i = old; i < size; ++i)
+            slots_[i].next = i + 1 < size ? static_cast<std::uint32_t>(i + 1) : free_head_;
+        free_head_ = static_cast<std::uint32_t>(old);
     }
 
     std::vector<Order> slots_;
