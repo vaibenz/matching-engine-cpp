@@ -21,6 +21,7 @@ struct Order {
     std::uint32_t prev;
     std::uint32_t next;
     Side side;
+    bool post_only;  // kept so a modify can never make it take liquidity
 };
 
 // Fixed size slab of orders with an intrusive free list. After warmup the

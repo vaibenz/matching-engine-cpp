@@ -53,6 +53,26 @@ TEST(post_only_rests_or_is_rejected) {
     CHECK((f.log == Log{"reject 1 po_would_take", "accept 2 B PO 99x1", "rest 2 B 99x1"}));
 }
 
+// A modify used to re-enter a post only order as a plain limit, so moving it
+// to the ask took liquidity: a maker only order paying the taker fee.
+TEST(modify_never_makes_a_post_only_order_take) {
+    Fixture f;
+    f.asks({{100, 5}});
+    f.book.submit(1, Side::Buy, OrderType::PostOnly, 99, 2);
+    f.book.submit(2, Side::Buy, OrderType::Limit, 99, 2);
+    f.log.clear();
+    CHECK(!f.book.modify(1, 100, 2));  // would cross: rejected, order untouched
+    CHECK((f.log == Log{"reject 1 po_would_take"}));
+    CHECK((f.book.queue_at(Side::Buy, 99) == std::vector<OrderId>{1, 2}));
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), 5);
+    CHECK(f.book.modify(1, 98, 3));    // a reprice that does not cross is fine
+    CHECK(!f.book.modify(1, 101, 3));  // and it is still post only afterwards
+    CHECK(f.book.find(1) && f.book.find(1)->price == 98);
+    CHECK(f.book.modify(2, 100, 2));   // a plain limit order may still trade on a modify
+    CHECK_EQ(f.book.quantity_at(Side::Sell, 100), 3);
+    CHECK(f.book.check_invariants());
+}
+
 TEST(market_order_price_is_ignored) {
     Fixture f;
     f.asks({{900, 1}});

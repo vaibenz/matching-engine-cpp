@@ -42,7 +42,7 @@ public:
         }
         Qty rem = match(id, side, limit, qty);
         if (rem > 0) {
-            if (can_rest(type)) rest(id, side, price, rem);
+            if (can_rest(type)) rest(id, side, price, rem, type == OrderType::PostOnly);
             else l_.on_cancelled(id, rem, CancelReason::UnfilledRemainder);
         }
         return qty - rem;
@@ -70,11 +70,12 @@ public:
             l_.on_modified(id, np, nq);
             return true;
         }
+        if (r.post_only && would_cross(r.side, np)) return rej(id, RejectReason::PostOnlyWouldTake), false;
         erase(r);
         ids_.erase(it);
         l_.on_modified(id, np, nq);
         Qty rem = match(id, r.side, np, nq);
-        if (rem > 0) rest(id, r.side, np, rem);
+        if (rem > 0) rest(id, r.side, np, rem, r.post_only);
         return true;
     }
 
@@ -105,6 +106,7 @@ private:
         Side side;
         Price price;
         typename std::list<Node>::iterator node;
+        bool post_only;
     };
 
     Qty rej(OrderId id, RejectReason r) {
@@ -162,11 +164,11 @@ private:
         return side == Side::Buy ? match_side(asks_, taker, side, limit, qty) : match_side(bids_, taker, side, limit, qty);
     }
 
-    void rest(OrderId id, Side side, Price price, Qty qty) {
+    void rest(OrderId id, Side side, Price price, Qty qty, bool post_only) {
         Lvl& lv = side == Side::Buy ? bids_[price] : asks_[price];
         lv.q.push_back({id, qty});
         lv.total += qty;
-        ids_.emplace(id, Ref{side, price, std::prev(lv.q.end())});
+        ids_.emplace(id, Ref{side, price, std::prev(lv.q.end()), post_only});
         l_.on_rested(id, side, price, qty);
     }
 

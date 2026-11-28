@@ -141,7 +141,7 @@ Level:  head ⇄ order ⇄ order ⇄ tail    FIFO, 32 bit index links, total qty
 | `FOK` | fills completely up to its price or does nothing (book untouched) |
 | `PostOnly` | rests, rejected if it would take liquidity |
 
-`submit`, `cancel` and `modify`. Reducing quantity at the same price keeps queue priority. A price change or a quantity increase loses priority, and the order may trade immediately if it now crosses. Trades always print at the resting order's price.
+`submit`, `cancel` and `modify`. Reducing quantity at the same price keeps queue priority. A price change or a quantity increase loses priority, and a limit order may trade immediately if it now crosses. A post only order stays post only: a modify that would make it cross is rejected (`PostOnlyWouldTake`) and the order keeps its price, quantity and place in the queue. Trades always print at the resting order's price.
 
 ## Testing
 

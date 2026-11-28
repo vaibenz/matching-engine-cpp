@@ -40,7 +40,7 @@ public:
         }
         Qty rem = match(id, side, limit, qty);
         if (rem > 0) {
-            if (can_rest(type)) rest(id, side, price, rem);
+            if (can_rest(type)) rest(id, side, price, rem, type == OrderType::PostOnly);
             else l_.on_cancelled(id, rem, CancelReason::UnfilledRemainder);
         }
         return qty - rem;
@@ -66,10 +66,15 @@ public:
             return true;
         }
         Side side = o->side;
+        bool post_only = o->post_only;
+        if (post_only) {  // still post only: a modify may not make it take
+            auto b = best(opposite(side));
+            if (b && crosses(side, np, b->price)) return rej(id, RejectReason::PostOnlyWouldTake), false;
+        }
         cancel_silently(id);
         l_.on_modified(id, np, nq);
         Qty rem = match(id, side, np, nq);
-        if (rem > 0) rest(id, side, np, rem);
+        if (rem > 0) rest(id, side, np, rem, post_only);
         return true;
     }
 
@@ -97,6 +102,7 @@ private:
         Price price;
         Qty qty;
         std::uint64_t seq;
+        bool post_only;
     };
 
     static bool crosses(Side taker, Price limit, Price resting) {
@@ -142,8 +148,8 @@ private:
         return qty;
     }
 
-    void rest(OrderId id, Side side, Price price, Qty qty) {
-        orders_.push_back({id, side, price, qty, seq_++});
+    void rest(OrderId id, Side side, Price price, Qty qty, bool post_only) {
+        orders_.push_back({id, side, price, qty, seq_++, post_only});
         l_.on_rested(id, side, price, qty);
     }
 

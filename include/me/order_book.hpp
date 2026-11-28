@@ -70,7 +70,7 @@ public:
         const Qty remaining = match(id, side, limit, qty);
         if (remaining > 0) {
             if (can_rest(type)) {
-                rest(id, side, price, remaining);
+                rest(id, side, price, remaining, type == OrderType::PostOnly);
             } else {
                 listener_.on_cancelled(id, remaining, CancelReason::UnfilledRemainder);
             }
@@ -94,7 +94,10 @@ public:
 
     // Reducing quantity at the same price keeps queue position. A price
     // change or a quantity increase loses priority: the order is pulled and
-    // re-entered as a fresh limit order, and may trade if it now crosses.
+    // re-entered at the new price, and a limit order may trade if it now
+    // crosses. A post only order stays post only: a modify that would make
+    // it cross is rejected with PostOnlyWouldTake and the order is left as
+    // it was, queue position included.
     bool modify(OrderId id, Price new_price, Qty new_qty) {
         const std::uint32_t idx = ids_.find(id);
         if (idx == kNil) return reject(id, RejectReason::UnknownOrderId), false;
@@ -109,13 +112,17 @@ public:
             return true;
         }
 
+        if (o.post_only && would_cross(o.side, new_price))
+            return reject(id, RejectReason::PostOnlyWouldTake), false;
+
         const Side side = o.side;
+        const bool post_only = o.post_only;
         ids_.erase(id);
         unlink(idx);
         pool_.free(idx);
         listener_.on_modified(id, new_price, new_qty);
         const Qty remaining = match(id, side, new_price, new_qty);
-        if (remaining > 0) rest(id, side, new_price, remaining);
+        if (remaining > 0) rest(id, side, new_price, remaining, post_only);
         return true;
     }
 
@@ -265,10 +272,10 @@ private:
         return qty;
     }
 
-    void rest(OrderId id, Side side, Price price, Qty qty) {
+    void rest(OrderId id, Side side, Price price, Qty qty, bool post_only) {
         const std::uint32_t idx = pool_.alloc();
         Order& o = pool_[idx];
-        o = Order{id, price, qty, kNil, kNil, side};
+        o = Order{id, price, qty, kNil, kNil, side, post_only};
         Level& lv = ladder(side)[price];
         o.prev = lv.tail;
         if (lv.tail != kNil) pool_[lv.tail].next = idx; else lv.head = idx;
